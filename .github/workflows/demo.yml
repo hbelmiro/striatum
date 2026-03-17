@@ -31,12 +31,12 @@ jobs:
           cache: false
 
       - name: Build striatum
-        run: go build -o striatum ./cmd/striatum
+        run: go build -o ${{ github.workspace }}/striatum ./cmd/striatum
 
       - name: Run demo
         env:
           STRIATUM_DEMO_REGISTRY: localhost:5000/demo
-          STRIATUM_BIN: ./striatum
+          STRIATUM_BIN: ${{ github.workspace }}/striatum
           STRIATUM_HOME: ${{ runner.temp }}/striatum-demo
           HOME: ${{ runner.temp }}/demo-home
         run: bash scripts/demo.sh
