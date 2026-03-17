@@ -19,9 +19,11 @@ func newPullCmd() *cobra.Command {
 	var outputDir string
 	var registry string
 	cmd := &cobra.Command{
-		Use:   "pull",
-		Short: "Download an artifact and its transitive dependencies",
-		Args:  cobra.ExactArgs(1),
+		Use:     "pull",
+		Short:   "Download an artifact and its transitive dependencies",
+		Long:    "Downloads the artifact and all dependencies into the output directory (default ./<root-name>/). Reference can be a registry (host/repo/name:tag) or oci:/path:tag.",
+		Example: "  striatum pull localhost:5000/skills/my-skill:1.0.0\n  striatum pull -o ./out oci:./.striatum/oci-layout:my-skill:1.0.0",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
 			wd, err := os.Getwd()

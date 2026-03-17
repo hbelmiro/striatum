@@ -21,9 +21,11 @@ func newInstallCmd() *cobra.Command {
 	var target, projectPath, registry string
 	var force, reinstallAll bool
 	cmd := &cobra.Command{
-		Use:   "install",
-		Short: "Pull and install an artifact into AI coding agent skills directories",
-		Args:  cobra.ExactArgs(1),
+		Use:     "install",
+		Short:   "Pull and install an artifact into AI coding agent skills directories",
+		Long:    "Resolves the artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install.",
+		Example: "  striatum install --target cursor localhost:5000/skills/my-skill:1.0.0",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
 				return runReinstallAll(cmd)

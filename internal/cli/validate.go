@@ -18,8 +18,10 @@ func newValidateCmd() *cobra.Command {
 	var checkDeps bool
 	var registry string
 	cmd := &cobra.Command{
-		Use:   "validate",
-		Short: "Validate the local artifact.json",
+		Use:     "validate",
+		Short:   "Validate the local artifact.json",
+		Long:    "Validates schema and that all spec.files exist. Use --check-deps with --registry to verify dependencies resolve in the registry.",
+		Example: "  striatum validate\n  striatum validate --check-deps --registry localhost:5000/skills",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := os.Getwd()
 			if err != nil {

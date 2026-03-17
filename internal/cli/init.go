@@ -13,8 +13,10 @@ import (
 func newInitCmd() *cobra.Command {
 	var name, version, kind, entrypoint string
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Scaffold an artifact.json in the current directory",
+		Use:     "init",
+		Short:   "Scaffold an artifact.json in the current directory",
+		Long:    "Creates an artifact.json in the current directory with the given name, version, and kind. The entrypoint file (default SKILL.md) is added to spec.files.",
+		Example: "  striatum init --name my-skill",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("artifact name is required (use --name)")

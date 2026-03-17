@@ -14,8 +14,10 @@ const defaultLayoutDir = ".striatum/oci-layout"
 
 func newPackCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pack",
-		Short: "Bundle the artifact into a local OCI Image Layout directory",
+		Use:     "pack",
+		Short:   "Bundle the artifact into a local OCI Image Layout directory",
+		Long:    "Reads artifact.json and spec.files from the current directory and writes an OCI Image Layout to .striatum/oci-layout/ for push or local use.",
+		Example: "  striatum pack",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := os.Getwd()
 			if err != nil {
