@@ -11,7 +11,7 @@ go build ./cmd/striatum
 ## Test
 
 ```bash
-go test -v -race ./...
+go test -v ./...
 ```
 
 To run integration tests (requires Docker for the local registry):
