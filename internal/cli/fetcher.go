@@ -31,7 +31,7 @@ func (f *remoteFetcher) FetchManifest(ctx context.Context, reference string) (*a
 	}
 	reg, err := remote.NewRepository(repo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create repository for %q: %w", reference, err)
 	}
 	return oci.Inspect(ctx, reg, tag)
 }

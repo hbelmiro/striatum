@@ -31,7 +31,8 @@ func InstalledPath() string {
 	return filepath.Join(CacheRoot(), installedFileName)
 }
 
-// LoadInstalled loads the install tracking database. Missing file returns nil slice and nil error.
+// LoadInstalled loads the install tracking database.
+// Missing file returns (nil, nil). Callers may treat nil entries as an empty list.
 func LoadInstalled() ([]InstalledEntry, error) {
 	path := InstalledPath()
 	data, err := os.ReadFile(path)

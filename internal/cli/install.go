@@ -131,25 +131,26 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	// Ensure each artifact is in cache (pull if missing)
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	for i, r := range resolved {
-		cacheDir := installer.CacheDir(r.Name, r.Version)
+		idx, res := i, r
+		cacheDir := installer.CacheDir(res.Name, res.Version)
 		pullFn := func(ctx context.Context, outputDir string) error {
 			var pullTarget oras.ReadOnlyTarget
 			pullRef := ref
-			if i == 0 {
+			if idx == 0 {
 				pullTarget = targetObj
 			} else {
-				repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
+				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
 				reg, err := remote.NewRepository(repo)
 				if err != nil {
 					return err
 				}
 				pullTarget = reg
-				pullRef = r.Version
+				pullRef = res.Version
 			}
 			if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
 				return err
 			}
-			created := filepath.Join(cacheRoot, r.Name)
+			created := filepath.Join(cacheRoot, res.Name)
 			if err := os.Rename(created, cacheDir); err != nil {
 				_ = os.RemoveAll(cacheDir)
 				return os.Rename(created, cacheDir)
@@ -157,7 +158,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			return nil
 		}
 		if err := installer.EnsureInCache(ctx, cacheDir, pullFn); err != nil {
-			return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+			return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 		}
 	}
 

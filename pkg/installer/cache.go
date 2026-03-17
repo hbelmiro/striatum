@@ -9,6 +9,9 @@ import (
 const cacheDirName = "cache"
 
 // CacheRoot returns the striatum config root (~/.striatum or STRIATUM_HOME).
+// If STRIATUM_HOME is unset and os.UserHomeDir() fails, it returns ".striatum"
+// (relative to the current working directory). Callers in constrained environments
+// should set STRIATUM_HOME explicitly.
 func CacheRoot() string {
 	if s := os.Getenv("STRIATUM_HOME"); s != "" {
 		return s

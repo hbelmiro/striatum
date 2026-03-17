@@ -20,7 +20,7 @@ OCI-compliant registry (Quay.io, Artifactory, ECR, a local
 - Artifact manifest format (`artifact.json`)
 - OCI packaging via `oras-go/v2`
 - Push/pull to any OCI-compliant registry
-- Install/uninstall skills into Cursor and Claude Code via symlinks
+- Install/uninstall skills into Cursor and Claude Code (copy from cache to target directory)
 - Transitive dependency resolution
 - Works locally -- no Kubernetes required
 
@@ -227,28 +227,26 @@ Pull an artifact from a registry and install it (with all transitive
 dependencies) into the AI coding agent skills directories so that Cursor,
 Claude Code, and other compatible tools can discover and use it immediately.
 
-Installation is done via symlinks, following the same approach as the installer
-in [hbelmiro/ai-skills](https://github.com/hbelmiro/ai-skills). Artifacts are
-first downloaded to a local cache (`~/.striatum/cache/`), then symlinked into
-the target skills directories.
+Installation is done by copying from the local cache into the target skills
+directory. Artifacts are first downloaded to a local cache
+(`~/.striatum/cache/`), then copied into the chosen target directory.
 
-**`--target` flag** controls where skills are installed:
+**`--target` flag** (required) controls where skills are installed. The current
+implementation supports only `cursor` and `claude`; `--target all` may be
+considered in a future release.
 
-- `all` (default) -- installs to all supported targets via symlinks:
-  `~/.cursor/skills/`, `~/.claude/skills/`, and any other compatible
-  directories. The primary copy lives in the cache; all targets get symlinks.
-- `cursor` -- installs only to `~/.cursor/skills/`
-- `claude` -- installs only to `~/.claude/skills/`
+- `cursor` -- installs to `~/.cursor/skills/` (or project `.cursor/skills/` with `--project`)
+- `claude` -- installs to `~/.claude/skills/` (or project `.claude/skills/` with `--project`)
 
 **`--project <path>`** installs to the project-level directory instead of the
 user-level (global) directory. For example, `--project .` installs to
 `.cursor/skills/` in the current project.
 
-**`--force`** replaces conflicting symlinks (never overwrites real directories
-or files).
+**`--force`** replaces conflicting installs (overwrites existing copy in the
+target directory).
 
-**Version conflicts:** Since `~/.cursor/skills/<name>` is a single symlink, it
-can only point to one version at a time. If you try to install a skill that
+**Version conflicts:** Since each target has a single directory per skill name
+(e.g. `~/.cursor/skills/<name>`), it can only hold one version at a time. If you try to install a skill that
 requires `review-shared@2.0.0` but `review-shared@1.0.0` is already installed
 and still needed by another skill, Striatum errors out:
 
@@ -260,28 +258,20 @@ Upgrade kubeflow-pipelines-review first, or use --force to override.
 ```
 
 The local cache (`~/.striatum/cache/`) can hold multiple versions side by side.
-The conflict only applies to the symlinked install targets where a single
+The conflict only applies to the install target directory where a single
 directory name maps to one version.
 
 ```text
-$ striatum install localhost:5000/skills/kubeflow-pipelines-review:1.0.0
+$ striatum install --target cursor localhost:5000/skills/kubeflow-pipelines-review:1.0.0
 Installing kubeflow-pipelines-review@1.0.0...
   Installing dependency go-code-review@1.0.0...
   Installing dependency python-code-review@1.0.0...
     Installing dependency review-shared@1.0.0... (transitive)
-Installed 4 artifacts:
-  ~/.cursor/skills/kubeflow-pipelines-review -> ~/.striatum/cache/kubeflow-pipelines-review@1.0.0
-  ~/.cursor/skills/go-code-review -> ~/.striatum/cache/go-code-review@1.0.0
-  ~/.cursor/skills/python-code-review -> ~/.striatum/cache/python-code-review@1.0.0
-  ~/.cursor/skills/review-shared -> ~/.striatum/cache/review-shared@1.0.0
-  ~/.claude/skills/kubeflow-pipelines-review -> ~/.striatum/cache/kubeflow-pipelines-review@1.0.0
-  ~/.claude/skills/go-code-review -> ~/.striatum/cache/go-code-review@1.0.0
-  ~/.claude/skills/python-code-review -> ~/.striatum/cache/python-code-review@1.0.0
-  ~/.claude/skills/review-shared -> ~/.striatum/cache/review-shared@1.0.0
+Installed 4 artifacts to ~/.cursor/skills/:
+  kubeflow-pipelines-review, go-code-review, python-code-review, review-shared
 
 $ striatum install --target cursor --project . localhost:5000/skills/go-code-review:1.0.0
-Installed 1 artifact:
-  .cursor/skills/go-code-review -> ~/.striatum/cache/go-code-review@1.0.0
+Installed 1 artifact to .cursor/skills/: go-code-review
 ```
 
 **`--reinstall-all`** replays all entries from the install tracking database.
@@ -336,7 +326,7 @@ entries:
   - skill: kubeflow-pipelines-review
     version: "1.0.0"
     registry: localhost:5000/skills
-    target: all
+    target: cursor
     status: ok
     last_error: null
     updated_at: "2026-03-16T12:00:00Z"
@@ -413,9 +403,9 @@ flowchart TD
     Packer --> RemoteReg
     Resolver --> RemoteReg
     Installer --> Cache
-    Cache -->|symlink| CursorDir
-    Cache -->|symlink| ClaudeDir
-    Cache -->|symlink| ProjectDir
+    Cache -->|copy| CursorDir
+    Cache -->|copy| ClaudeDir
+    Cache -->|copy| ProjectDir
 ```
 
 ## 10. Project Structure
@@ -447,7 +437,7 @@ striatum/
 │   │   └── inspect.go
 │   ├── resolver/                # Transitive dependency resolution
 │   │   └── resolver.go
-│   └── installer/               # Skill installation and symlink management
+│   └── installer/               # Skill installation and copy-to-target
 │       ├── installer.go
 │       ├── targets.go
 │       └── db.go
@@ -501,11 +491,11 @@ striatum/
 ### Milestone 5 -- Skill Installation
 
 - **5.1** Implement local cache management (`~/.striatum/cache/`).
-- **5.2** Implement install target discovery and symlink creation
+- **5.2** Implement install target discovery and copy into target directories
   (`pkg/installer/`), porting the logic from
   [hbelmiro/ai-skills `src/install.py`](https://github.com/hbelmiro/ai-skills/blob/main/src/install.py).
-- **5.3** Implement `striatum install` command with `--target` (all, cursor,
-  claude) and `--project` flags.
+- **5.3** Implement `striatum install` command with `--target` (cursor, claude;
+  `all` may be added later) and `--project` flags.
 - **5.4** Implement version conflict detection on install (error when a
   different version of a dependency is already installed and needed by another
   skill; `--force` to override).
