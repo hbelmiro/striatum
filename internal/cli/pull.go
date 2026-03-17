@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 	oras "oras.land/oras-go/v2"
 	orasoci "oras.land/oras-go/v2/content/oci"
@@ -15,6 +17,7 @@ import (
 
 func newPullCmd() *cobra.Command {
 	var outputDir string
+	var registry string
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Download an artifact and its transitive dependencies",
@@ -25,23 +28,86 @@ func newPullCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			if outputDir == "" {
-				// Default: ./<artifact-name>/ (we don't know name until we inspect; use current dir for now)
-				outputDir = wd
-			}
 			target, ref, err := resolveTargetAndRef(reference)
 			if err != nil {
 				return err
 			}
-			if err := oci.Pull(context.Background(), target, ref, outputDir); err != nil {
-				return err
+			ctx := context.Background()
+			rootManifest, err := oci.Inspect(ctx, target, ref)
+			if err != nil {
+				return fmt.Errorf("inspect artifact: %w", err)
+			}
+			if outputDir == "" {
+				outputDir = filepath.Join(wd, rootManifest.Metadata.Name)
+			}
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
+			}
+
+			isOCI := strings.HasPrefix(reference, "oci:")
+			if isOCI && len(rootManifest.Dependencies) > 0 && strings.TrimSpace(registry) == "" {
+				return fmt.Errorf("pull with oci: reference and dependencies requires --registry")
+			}
+
+			if len(rootManifest.Dependencies) == 0 {
+				if err := oci.Pull(ctx, target, ref, outputDir); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
+				return nil
+			}
+
+			defaultRegistry := deriveDefaultRegistry(reference)
+			if isOCI {
+				defaultRegistry = strings.TrimSpace(registry)
+			}
+			fetcher := NewRemoteFetcher()
+			resolved, err := resolver.Resolve(ctx, rootManifest, defaultRegistry, fetcher)
+			if err != nil {
+				return fmt.Errorf("resolving dependencies: %w", err)
+			}
+			for i, r := range resolved {
+				var pullTarget oras.ReadOnlyTarget
+				pullRef := r.Version
+				if i == 0 {
+					pullTarget = target
+					pullRef = ref
+				} else {
+					repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
+					reg, err := remote.NewRepository(repo)
+					if err != nil {
+						return fmt.Errorf("create repository for %s: %w", r.Name, err)
+					}
+					pullTarget = reg
+				}
+				if err := oci.Pull(ctx, pullTarget, pullRef, outputDir); err != nil {
+					return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+				}
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: current directory)")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: ./<root-name>/)")
+	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required for oci: reference when root has dependencies)")
 	return cmd
+}
+
+// deriveDefaultRegistry returns the registry base from a remote reference (host/repo/name:tag -> host/repo).
+func deriveDefaultRegistry(reference string) string {
+	if strings.HasPrefix(reference, "oci:") {
+		return ""
+	}
+	i := strings.LastIndex(reference, ":")
+	if i < 0 {
+		return ""
+	}
+	repoPart := reference[:i]
+	j := strings.LastIndex(repoPart, "/")
+	if j < 0 {
+		return repoPart
+	}
+	return repoPart[:j]
 }
 
 // resolveTargetAndRef parses reference and returns a read-only target and the ref to resolve (tag).
