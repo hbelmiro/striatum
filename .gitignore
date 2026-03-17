@@ -1,0 +1,30 @@
+# Binaries
+striatum
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage
+*.test
+coverage.out
+coverage.html
+
+# Local Striatum state
+.striatum/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go workspace
+go.work
+go.work.sum
