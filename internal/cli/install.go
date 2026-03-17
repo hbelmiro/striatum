@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func newInstallCmd() *cobra.Command {
 func runReinstallAll(cmd *cobra.Command) error {
 	entries, err := installer.LoadInstalled()
 	if err != nil {
-		return err
+		return fmt.Errorf("load installed: %w", err)
 	}
 	if entries == nil {
 		entries = []installer.InstalledEntry{}
@@ -66,25 +67,33 @@ func runReinstallAll(cmd *cobra.Command) error {
 		if err != nil {
 			e.Status = "error"
 			e.LastError = err.Error()
-			_ = installer.SaveInstalled(entries)
+			if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+				return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
+			}
 			return err
 		}
 		cacheDir := installer.CacheDir(e.Skill, e.Version)
-		if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
-			// need to pull
+		if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
+			if !os.IsNotExist(statErr) {
+				return fmt.Errorf("check cache for %s@%s: %w", e.Skill, e.Version, statErr)
+			}
 			if strings.TrimSpace(e.Registry) == "" {
 				e.Status = "error"
 				e.LastError = "cannot re-pull: entry has no registry (e.g. was installed from oci: layout); re-install from original source"
 				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				_ = installer.SaveInstalled(entries)
+				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+					return fmt.Errorf("%s@%s: %s (also failed to persist state: %v)", e.Skill, e.Version, e.LastError, saveErr)
+				}
 				return fmt.Errorf("%s@%s: %s", e.Skill, e.Version, e.LastError)
 			}
 			ref := strings.TrimSuffix(e.Registry, "/") + "/" + e.Skill + ":" + e.Version
-			if err := pullOneToCache(context.Background(), ref, cacheDir, e.Skill); err != nil {
+			if err := pullOneToCache(cmd.Context(), ref, cacheDir, e.Skill); err != nil {
 				e.Status = "error"
 				e.LastError = err.Error()
 				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				_ = installer.SaveInstalled(entries)
+				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+					return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
+				}
 				return err
 			}
 		}
@@ -92,21 +101,26 @@ func runReinstallAll(cmd *cobra.Command) error {
 			e.Status = "error"
 			e.LastError = err.Error()
 			e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			_ = installer.SaveInstalled(entries)
+			if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+				return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
+			}
 			return err
 		}
 		e.Status = "ok"
 		e.LastError = ""
 		e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	return installer.SaveInstalled(entries)
+	if err := installer.SaveInstalled(entries); err != nil {
+		return fmt.Errorf("save installed: %w", err)
+	}
+	return nil
 }
 
 func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag string, force bool) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 	targetObj, ref, err := resolveTargetAndRef(reference)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve reference: %w", err)
 	}
 	rootManifest, err := oci.Inspect(ctx, targetObj, ref)
 	if err != nil {
@@ -143,7 +157,9 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	for i, r := range resolved {
 		idx, res := i, r
 		cacheDir := installer.CacheDir(res.Name, res.Version)
-		pullFn := func(ctx context.Context, outputDir string) error {
+		// outputDir is intentionally unused: oci.Pull writes to cacheRoot/<name>/,
+		// which is then atomically moved into cacheDir.
+		pullFn := func(ctx context.Context, _ string) error {
 			var pullTarget oras.ReadOnlyTarget
 			pullRef := ref
 			if idx == 0 {
@@ -152,17 +168,17 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
 				reg, err := remote.NewRepository(repo)
 				if err != nil {
-					return err
+					return fmt.Errorf("create repository for %s: %w", res.Name, err)
 				}
 				pullTarget = reg
 				pullRef = res.Version
 			}
 			if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
-				return err
+				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 			}
 			created := filepath.Join(cacheRoot, res.Name)
 			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
-				return err
+				return fmt.Errorf("cache %s@%s: %w", res.Name, res.Version, err)
 			}
 			return nil
 		}
@@ -174,12 +190,15 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	// Conflict check
 	existing, err := installer.LoadInstalled()
 	if err != nil {
-		return err
+		return fmt.Errorf("load installed: %w", err)
 	}
 	if existing == nil {
 		existing = []installer.InstalledEntry{}
 	}
-	required := buildRequired(existing)
+	required, err := buildRequired(existing)
+	if err != nil {
+		return fmt.Errorf("build required set: %w", err)
+	}
 	for _, r := range resolved {
 		if v, ok := required[r.Name]; ok && v != r.Version && !force {
 			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
@@ -188,7 +207,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 
 	targetDir, err := installer.Targets(target, projectPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve target dir: %w", err)
 	}
 	for _, r := range resolved {
 		cacheDir := installer.CacheDir(r.Name, r.Version)
@@ -231,18 +250,28 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			UpdatedAt:     now,
 		}
 	}
-	var newEntries []installer.InstalledEntry
+	newEntries := make([]installer.InstalledEntry, 0, len(byKey))
 	for _, e := range byKey {
 		newEntries = append(newEntries, *e)
 	}
+	sort.Slice(newEntries, func(i, j int) bool {
+		a, b := newEntries[i], newEntries[j]
+		if a.Skill != b.Skill {
+			return a.Skill < b.Skill
+		}
+		if a.Target != b.Target {
+			return a.Target < b.Target
+		}
+		return a.ProjectPath < b.ProjectPath
+	})
 	if err := installer.SaveInstalled(newEntries); err != nil {
-		return err
+		return fmt.Errorf("save installed: %w", err)
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(resolved), "artifact(s) to", targetDir)
 	return nil
 }
 
-func buildRequired(entries []installer.InstalledEntry) map[string]string {
+func buildRequired(entries []installer.InstalledEntry) (map[string]string, error) {
 	required := make(map[string]string)
 	for _, e := range entries {
 		if e.InstalledWith != "" {
@@ -251,27 +280,27 @@ func buildRequired(entries []installer.InstalledEntry) map[string]string {
 		cacheDir := installer.CacheDir(e.Skill, e.Version)
 		m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("load cached manifest for %s@%s: %w", e.Skill, e.Version, err)
 		}
 		required[m.Metadata.Name] = m.Metadata.Version
 		for _, d := range m.Dependencies {
 			required[d.Name] = d.Version
 		}
 	}
-	return required
+	return required, nil
 }
 
 func pullOneToCache(ctx context.Context, reference, cacheDir, name string) error {
 	targetObj, ref, err := resolveTargetAndRef(reference)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve reference: %w", err)
 	}
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create cache root: %w", err)
 	}
 	if err := oci.Pull(ctx, targetObj, ref, cacheRoot); err != nil {
-		return err
+		return fmt.Errorf("pull artifact: %w", err)
 	}
 	created := filepath.Join(cacheRoot, name)
 	return atomicReplaceCacheDir(created, cacheDir)
@@ -284,7 +313,9 @@ func atomicReplaceCacheDir(created, cacheDir string) error {
 		return fmt.Errorf("remove existing cache dir: %w", err)
 	}
 	if err := os.Rename(created, cacheDir); err != nil {
-		_ = os.RemoveAll(created)
+		if rmErr := os.RemoveAll(created); rmErr != nil {
+			return fmt.Errorf("rename to cache dir: %w (cleanup of %q failed: %v)", err, created, rmErr)
+		}
 		return fmt.Errorf("rename to cache dir: %w", err)
 	}
 	return nil

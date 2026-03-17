@@ -31,7 +31,9 @@ func NewRootCommand() *cobra.Command {
 
 // Execute runs the root command. It is called from main.
 func Execute() {
-	if err := NewRootCommand().Execute(); err != nil {
+	cmd := NewRootCommand()
+	cmd.SilenceErrors = true
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

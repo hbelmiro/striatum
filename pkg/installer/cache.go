@@ -2,6 +2,7 @@ package installer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -9,14 +10,18 @@ import (
 const cacheDirName = "cache"
 
 // CacheRoot returns the striatum config root (~/.striatum or STRIATUM_HOME).
-// If STRIATUM_HOME is unset and os.UserHomeDir() fails, it returns ".striatum"
-// (relative to the current working directory). Callers in constrained environments
-// should set STRIATUM_HOME explicitly.
+// If STRIATUM_HOME is unset and os.UserHomeDir() fails, it falls back to ".striatum"
+// (relative to the current working directory) and prints a warning to stderr.
+// Callers in constrained environments should set STRIATUM_HOME explicitly.
 func CacheRoot() string {
 	if s := os.Getenv("STRIATUM_HOME"); s != "" {
 		return s
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Warning: cannot determine home directory; using .striatum in current directory. Set STRIATUM_HOME to override.")
+		return ".striatum"
+	}
 	return filepath.Join(home, ".striatum")
 }
 
@@ -37,10 +42,10 @@ func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc) error {
 		return nil
 	}
 	if !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("stat cache dir %s: %w", cacheDir, err)
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create cache dir: %w", err)
 	}
 	return pull(ctx, cacheDir)
 }

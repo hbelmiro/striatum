@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -21,14 +22,17 @@ func TestInspect_FromOCILayoutPrintsManifest(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "inspect-cli", Version: "2.0.0", Description: "Desc"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := oci.Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatal(err)
 	}
 

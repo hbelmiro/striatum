@@ -10,11 +10,7 @@ import (
 
 func TestInit_CreatesArtifactJSON(t *testing.T) {
 	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"init", "--name", "my-skill"})
@@ -52,11 +48,7 @@ func TestInit_CreatesArtifactJSON(t *testing.T) {
 
 func TestInit_WithVersionAndKind(t *testing.T) {
 	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"init", "--name", "x", "--version", "2.0.0", "--kind", "Skill"})
@@ -74,12 +66,7 @@ func TestInit_WithVersionAndKind(t *testing.T) {
 }
 
 func TestInit_RequiresName(t *testing.T) {
-	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(t.TempDir())
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"init"})
@@ -91,11 +78,7 @@ func TestInit_RequiresName(t *testing.T) {
 
 func TestInit_CustomEntrypoint(t *testing.T) {
 	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"init", "--name", "x", "--entrypoint", "OTHER.md"})
@@ -121,11 +104,7 @@ func TestInit_OverwritesExistingArtifactJSON(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"old","version":"0.0.1"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"init", "--name", "new-skill", "--version", "1.0.0"})

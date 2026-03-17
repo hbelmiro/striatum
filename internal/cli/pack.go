@@ -26,14 +26,14 @@ func newPackCmd() *cobra.Command {
 			manifestPath := filepath.Join(wd, defaultManifestName)
 			m, err := artifact.Load(manifestPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("load manifest: %w", err)
 			}
 			layoutPath := filepath.Join(wd, defaultLayoutDir)
 			if err := os.MkdirAll(layoutPath, 0o755); err != nil {
 				return fmt.Errorf("create layout dir: %w", err)
 			}
-			if err := oci.Pack(m, wd, layoutPath); err != nil {
-				return err
+			if err := oci.Pack(cmd.Context(), m, wd, layoutPath); err != nil {
+				return fmt.Errorf("pack artifact: %w", err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed artifact to %s/\n", defaultLayoutDir)
 			return nil

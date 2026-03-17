@@ -8,12 +8,7 @@ import (
 )
 
 func TestValidate_NoArtifactJSON(t *testing.T) {
-	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(t.TempDir())
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"validate"})
@@ -29,11 +24,7 @@ func TestValidate_InvalidSchema(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"apiVersion":"v1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"validate"})
@@ -54,11 +45,7 @@ func TestValidate_FileMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"validate"})
@@ -78,11 +65,7 @@ func TestValidate_Success(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	out := &strings.Builder{}
 	root := NewRootCommand()
@@ -110,11 +93,7 @@ func TestValidate_CheckDepsWithoutRegistry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"validate", "--check-deps"})
@@ -137,11 +116,7 @@ func TestValidate_CheckDepsWithRegistryNoDeps(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	out := &strings.Builder{}
 	root := NewRootCommand()

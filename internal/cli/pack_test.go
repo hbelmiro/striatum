@@ -12,11 +12,7 @@ import (
 
 func TestPack_CreatesLayoutAndPrintsMessage(t *testing.T) {
 	dir := t.TempDir()
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(dir)
 
 	manifest := &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha1",
@@ -24,7 +20,10 @@ func TestPack_CreatesLayoutAndPrintsMessage(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "cli-pack", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}

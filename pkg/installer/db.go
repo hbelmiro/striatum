@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -52,10 +53,11 @@ func LoadInstalled() ([]InstalledEntry, error) {
 	return f.Entries, nil
 }
 
-// SaveInstalled writes the install tracking database. entries may be nil (writes empty list).
+// SaveInstalled writes the install tracking database atomically. entries may be nil (writes empty list).
 func SaveInstalled(entries []InstalledEntry) error {
 	path := InstalledPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	f := installedFile{Entries: entries}
@@ -66,5 +68,15 @@ func SaveInstalled(entries []InstalledEntry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		if rmErr := os.Remove(tmp); rmErr != nil {
+			return fmt.Errorf("rename %s: %w (cleanup of temp file failed: %v)", path, err, rmErr)
+		}
+		return fmt.Errorf("rename %s: %w", path, err)
+	}
+	return nil
 }

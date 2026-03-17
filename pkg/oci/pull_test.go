@@ -22,7 +22,10 @@ func TestPull_ExtractsArtifactToOutputDir(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "pull-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "extra.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +36,7 @@ func TestPull_ExtractsArtifactToOutputDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,8 +62,11 @@ func TestPull_ExtractsArtifactToOutputDir(t *testing.T) {
 }
 
 func TestPull_UnknownRefReturnsError(t *testing.T) {
-	store, _ := orasoci.New(t.TempDir())
-	err := Pull(context.Background(), store, "nonexistent:1.0.0", t.TempDir())
+	store, err := orasoci.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Pull(context.Background(), store, "nonexistent:1.0.0", t.TempDir())
 	if err == nil {
 		t.Error("Pull(unknown ref) err = nil, want error")
 	}

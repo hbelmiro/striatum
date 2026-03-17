@@ -17,40 +17,33 @@ import (
 // For oci: references, the path is passed to the OCI layout store as-is (use absolute paths
 // for predictable behavior across platforms).
 func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference string) error {
-	repo, tag, err := parseReference(reference)
+	repo, tag, err := SplitReference(reference)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse reference: %w", err)
 	}
 
 	mem := memory.New()
 	if err := packToTarget(ctx, m, baseDir, mem, tag); err != nil {
-		return err
+		return fmt.Errorf("pack artifact: %w", err)
 	}
 
 	if strings.HasPrefix(reference, "oci:") {
-		layoutPath := strings.TrimPrefix(repo, "oci:")
-		layoutStore, err := oci.New(layoutPath)
+		layoutStore, err := oci.New(repo)
 		if err != nil {
 			return fmt.Errorf("open OCI layout: %w", err)
 		}
-		_, err = oras.Copy(ctx, mem, tag, layoutStore, tag, oras.DefaultCopyOptions)
-		return err
+		if _, err = oras.Copy(ctx, mem, tag, layoutStore, tag, oras.DefaultCopyOptions); err != nil {
+			return fmt.Errorf("copy to OCI layout: %w", err)
+		}
+		return nil
 	}
 
 	reg, err := remote.NewRepository(repo)
 	if err != nil {
 		return fmt.Errorf("create repository: %w", err)
 	}
-	_, err = oras.Copy(ctx, mem, tag, reg, tag, oras.DefaultCopyOptions)
-	return err
-}
-
-// parseReference splits "host/repo/name:tag" into ("host/repo/name", "tag").
-// For "oci:/path:tag" returns ("oci:/path", "tag"). Returns error if no colon.
-func parseReference(reference string) (repo string, tag string, err error) {
-	i := strings.LastIndex(reference, ":")
-	if i < 0 {
-		return "", "", fmt.Errorf("invalid reference %q: missing tag", reference)
+	if _, err = oras.Copy(ctx, mem, tag, reg, tag, oras.DefaultCopyOptions); err != nil {
+		return fmt.Errorf("push to registry: %w", err)
 	}
-	return reference[:i], reference[i+1:], nil
+	return nil
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -22,14 +23,17 @@ func TestPull_FromOCILayoutSucceeds(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "cli-pull", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := oci.Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,20 +63,23 @@ func TestPull_OCILayoutWithDepsRequiresRegistry(t *testing.T) {
 		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		Dependencies: []artifact.Dependency{{Name: "dep", Version: "1.0.0"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := oci.Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
 	root.SetArgs([]string{"pull", "oci:" + layoutDir + ":root:1.0.0"})
-	err := root.Execute()
+	err = root.Execute()
 	if err == nil {
 		t.Error("pull oci: with deps and no --registry: expected error, got nil")
 	}

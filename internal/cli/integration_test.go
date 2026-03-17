@@ -36,8 +36,9 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 
 	// Wait for registry to be reachable
 	baseURL := "http://localhost:" + registryPort
+	client := &http.Client{Timeout: 5 * time.Second}
 	for i := 0; i < 30; i++ {
-		resp, err := http.Get(baseURL + "/v2/")
+		resp, err := client.Get(baseURL + "/v2/")
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized {
@@ -58,7 +59,10 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "integration-test", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +70,7 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origWd, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origWd) }()
-	if err := os.Chdir(baseDir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(baseDir)
 
 	ref := "localhost:" + registryPort + "/demo/integration-test:1.0.0"
 	root := NewRootCommand()
