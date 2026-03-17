@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 	oras "oras.land/oras-go/v2"
 	orasoci "oras.land/oras-go/v2/content/oci"
-	"oras.land/oras-go/v2/registry/remote"
 )
 
 func newPullCmd() *cobra.Command {
@@ -75,7 +74,7 @@ func newPullCmd() *cobra.Command {
 					pullRef = ref
 				} else {
 					repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
-					reg, err := remote.NewRepository(repo)
+					reg, err := oci.NewRepository(repo)
 					if err != nil {
 						return fmt.Errorf("create repository for %s: %w", r.Name, err)
 					}
@@ -128,7 +127,7 @@ func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
-	reg, err := remote.NewRepository(repo)
+	reg, err := oci.NewRepository(repo)
 	if err != nil {
 		return nil, "", fmt.Errorf("create repository: %w", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
-	"oras.land/oras-go/v2/registry/remote"
 )
 
 // Push packs the artifact and pushes it to the registry (or OCI layout) at reference.
@@ -38,7 +37,7 @@ func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference s
 		return nil
 	}
 
-	reg, err := remote.NewRepository(repo)
+	reg, err := NewRepository(repo)
 	if err != nil {
 		return fmt.Errorf("create repository: %w", err)
 	}
