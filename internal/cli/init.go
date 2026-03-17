@@ -1,18 +1,50 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/spf13/cobra"
 )
 
 func newInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var name, version, kind, entrypoint string
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Scaffold an artifact.json in the current directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "not implemented yet")
+			if name == "" {
+				return fmt.Errorf("artifact name is required (use --name)")
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
+			m := &artifact.Manifest{
+				APIVersion: "striatum.dev/v1alpha1",
+				Kind:       kind,
+				Metadata:   artifact.Metadata{Name: name, Version: version},
+				Spec:       artifact.Spec{Entrypoint: entrypoint, Files: []string{entrypoint}},
+			}
+			path := filepath.Join(wd, "artifact.json")
+			data, err := json.MarshalIndent(m, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshal manifest: %w", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				return fmt.Errorf("write artifact.json: %w", err)
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Created artifact.json")
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&name, "name", "", "Artifact name (required)")
+	cmd.Flags().StringVar(&version, "version", "0.1.0", "Artifact version")
+	cmd.Flags().StringVar(&kind, "kind", "Skill", "Artifact kind")
+	cmd.Flags().StringVar(&entrypoint, "entrypoint", "SKILL.md", "Entrypoint file (must be in spec.files)")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
 }
