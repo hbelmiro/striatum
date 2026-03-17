@@ -14,6 +14,8 @@ import (
 
 // Push packs the artifact and pushes it to the registry (or OCI layout) at reference.
 // Reference format: "host/repo/name:tag" for remote, or "oci:/path/to/layout:tag" for local layout.
+// For oci: references, the path is passed to the OCI layout store as-is (use absolute paths
+// for predictable behavior across platforms).
 func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference string) error {
 	repo, tag, err := parseReference(reference)
 	if err != nil {

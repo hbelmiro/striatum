@@ -14,6 +14,12 @@ go build ./cmd/striatum
 go test -v -race ./...
 ```
 
+To run integration tests (requires Docker for the local registry):
+
+```bash
+go test -tags=integration ./...
+```
+
 ## Commands
 
 - `striatum init` — scaffold an `artifact.json`

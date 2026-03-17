@@ -95,12 +95,19 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 
 	// Orphan cleanup: remove entries that are no longer required by any root
 	for {
-		orphans := computeOrphans(remaining)
+		orphans, hadUnloadableRoot := computeOrphans(remaining)
+		if hadUnloadableRoot {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Could not load manifest for some installed roots; skipping orphan cleanup")
+			break
+		}
 		if len(orphans) == 0 {
 			break
 		}
 		for _, e := range orphans {
-			targetDir, _ := installer.Targets(e.Target, e.ProjectPath)
+			targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+			if err != nil {
+				return err
+			}
 			_ = installer.RemoveFromTarget(targetDir, e.Skill)
 		}
 		remaining = removeEntries(remaining, orphans)
@@ -113,7 +120,10 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	return nil
 }
 
-func computeOrphans(entries []installer.InstalledEntry) []installer.InstalledEntry {
+// computeOrphans returns entries that are no longer required by any root.
+// If any root's manifest cannot be loaded from cache, it returns (nil, true) so the caller
+// skips orphan removal (conservative: treat unknown deps as required).
+func computeOrphans(entries []installer.InstalledEntry) (orphans []installer.InstalledEntry, hadUnloadableRoot bool) {
 	required := make(map[string]bool)
 	for _, e := range entries {
 		if e.InstalledWith != "" {
@@ -123,20 +133,23 @@ func computeOrphans(entries []installer.InstalledEntry) []installer.InstalledEnt
 		cacheDir := installer.CacheDir(e.Skill, e.Version)
 		m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
 		if err != nil {
+			hadUnloadableRoot = true
 			continue
 		}
 		for _, d := range m.Dependencies {
 			required[d.Name] = true
 		}
 	}
-	var orphans []installer.InstalledEntry
+	if hadUnloadableRoot {
+		return nil, true
+	}
 	for _, e := range entries {
 		if required[e.Skill] {
 			continue
 		}
 		orphans = append(orphans, e)
 	}
-	return orphans
+	return orphans, false
 }
 
 func removeEntries(entries, toRemove []installer.InstalledEntry) []installer.InstalledEntry {
