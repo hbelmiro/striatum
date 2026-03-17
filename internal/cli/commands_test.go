@@ -69,7 +69,9 @@ func TestCommandsRequiringArg_AcceptOneArg(t *testing.T) {
 	}
 }
 
-var commandsWithNoRequiredArg = []string{"init", "validate", "pack"}
+// commandsWithNoRequiredArg lists subcommands that take no required args and still show stub output.
+// init and validate are implemented and have their own tests.
+var commandsWithNoRequiredArg = []string{"pack"}
 
 func TestCommandsWithNoRequiredArg_RunExitsZero(t *testing.T) {
 	for _, name := range commandsWithNoRequiredArg {
