@@ -113,13 +113,18 @@ func deriveDefaultRegistry(reference string) string {
 }
 
 // resolveTargetAndRef parses reference and returns a read-only target and the ref to resolve (tag).
-// Supports "oci:/path:tag" for local layout (tag may contain colons, e.g. "name:1.0.0") and "host/repo/name:tag" for remote.
+// Supports "oci:/path:tag" or "oci:path:name:version" (tag after first colon), and "oci:C:\path:tag" on Windows
+// (split on last colon when path contains backslash so drive letter is not treated as separator).
 func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, error) {
 	if strings.HasPrefix(reference, "oci:") {
 		rest := reference[len("oci:"):]
 		i := strings.Index(rest, ":")
 		if i < 0 {
 			return nil, "", fmt.Errorf("invalid oci reference %q: missing tag", reference)
+		}
+		// Windows paths like C:\layout:tag: use last colon so drive letter isn't the separator
+		if strings.Contains(rest[:i], "\\") {
+			i = strings.LastIndex(rest, ":")
 		}
 		layoutPath, tag := rest[:i], rest[i+1:]
 		store, err := orasoci.New(layoutPath)

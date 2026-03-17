@@ -29,11 +29,15 @@ func CacheDir(name, version string) string {
 type PullFunc func(ctx context.Context, outputDir string) error
 
 // EnsureInCache ensures the artifact is in cacheDir. If artifact.json already exists there, skip pull.
-// Otherwise create the dir and call pull.
+// Only pulls when the manifest is missing (os.IsNotExist); other Stat errors (e.g. permission) are returned.
 func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc) error {
 	manifestPath := filepath.Join(cacheDir, "artifact.json")
-	if _, err := os.Stat(manifestPath); err == nil {
+	_, err := os.Stat(manifestPath)
+	if err == nil {
 		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return err

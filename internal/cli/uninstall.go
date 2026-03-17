@@ -75,7 +75,9 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		if err != nil {
 			return err
 		}
-		_ = installer.RemoveFromTarget(targetDir, e.Skill)
+		if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
+			return fmt.Errorf("remove %s from target: %w", e.Skill, err)
+		}
 	}
 
 	// Remove toRemove from entries
@@ -108,7 +110,9 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 			if err != nil {
 				return err
 			}
-			_ = installer.RemoveFromTarget(targetDir, e.Skill)
+			if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Skill, "from target:", err)
+			}
 		}
 		remaining = removeEntries(remaining, orphans)
 	}
@@ -120,16 +124,22 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	return nil
 }
 
-// computeOrphans returns entries that are no longer required by any root.
+// computeOrphans returns entries that are no longer required by any root in the same target/project.
 // If any root's manifest cannot be loaded from cache, it returns (nil, true) so the caller
 // skips orphan removal (conservative: treat unknown deps as required).
 func computeOrphans(entries []installer.InstalledEntry) (orphans []installer.InstalledEntry, hadUnloadableRoot bool) {
-	required := make(map[string]bool)
+	// required[target|project] = set of skill names required in that context
+	type key string
+	required := make(map[key]map[string]bool)
 	for _, e := range entries {
 		if e.InstalledWith != "" {
 			continue
 		}
-		required[e.Skill] = true
+		ctxKey := key(e.Target + "|" + e.ProjectPath)
+		if required[ctxKey] == nil {
+			required[ctxKey] = make(map[string]bool)
+		}
+		required[ctxKey][e.Skill] = true
 		cacheDir := installer.CacheDir(e.Skill, e.Version)
 		m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
 		if err != nil {
@@ -137,14 +147,15 @@ func computeOrphans(entries []installer.InstalledEntry) (orphans []installer.Ins
 			continue
 		}
 		for _, d := range m.Dependencies {
-			required[d.Name] = true
+			required[ctxKey][d.Name] = true
 		}
 	}
 	if hadUnloadableRoot {
 		return nil, true
 	}
 	for _, e := range entries {
-		if required[e.Skill] {
+		ctxKey := key(e.Target + "|" + e.ProjectPath)
+		if required[ctxKey] != nil && required[ctxKey][e.Skill] {
 			continue
 		}
 		orphans = append(orphans, e)

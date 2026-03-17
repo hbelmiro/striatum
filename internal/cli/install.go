@@ -25,10 +25,13 @@ func newInstallCmd() *cobra.Command {
 		Short:   "Pull and install an artifact into AI coding agent skills directories",
 		Long:    "Resolves the artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install.",
 		Example: "  striatum install --target cursor localhost:5000/skills/my-skill:1.0.0",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
 				return runReinstallAll(cmd)
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("install requires a reference (e.g. host/repo/name:tag or oci:/path:tag)")
 			}
 			reference := args[0]
 			target = strings.TrimSpace(target)
@@ -69,6 +72,13 @@ func runReinstallAll(cmd *cobra.Command) error {
 		cacheDir := installer.CacheDir(e.Skill, e.Version)
 		if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
 			// need to pull
+			if strings.TrimSpace(e.Registry) == "" {
+				e.Status = "error"
+				e.LastError = "cannot re-pull: entry has no registry (e.g. was installed from oci: layout); re-install from original source"
+				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = installer.SaveInstalled(entries)
+				return fmt.Errorf("%s@%s: %s", e.Skill, e.Version, e.LastError)
+			}
 			ref := strings.TrimSuffix(e.Registry, "/") + "/" + e.Skill + ":" + e.Version
 			if err := pullOneToCache(context.Background(), ref, cacheDir, e.Skill); err != nil {
 				e.Status = "error"
@@ -151,9 +161,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 				return err
 			}
 			created := filepath.Join(cacheRoot, res.Name)
-			if err := os.Rename(created, cacheDir); err != nil {
-				_ = os.RemoveAll(cacheDir)
-				return os.Rename(created, cacheDir)
+			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
+				return err
 			}
 			return nil
 		}
@@ -190,9 +199,13 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 
 	// Merge new entries into DB (only on full success)
 	rootName := rootManifest.Metadata.Name
-	normProject, _ := filepath.Abs(projectPath)
-	if projectPath == "" {
-		normProject = ""
+	normProject := ""
+	if projectPath != "" {
+		abs, err := filepath.Abs(projectPath)
+		if err != nil {
+			return fmt.Errorf("resolve project path %q: %w", projectPath, err)
+		}
+		normProject = abs
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	byKey := make(map[string]*installer.InstalledEntry)
@@ -261,5 +274,18 @@ func pullOneToCache(ctx context.Context, reference, cacheDir, name string) error
 		return err
 	}
 	created := filepath.Join(cacheRoot, name)
-	return os.Rename(created, cacheDir)
+	return atomicReplaceCacheDir(created, cacheDir)
+}
+
+// atomicReplaceCacheDir moves created (fresh pull) to cacheDir, removing cacheDir first if it exists
+// (e.g. partial/corrupt cache missing artifact.json) so Rename succeeds.
+func atomicReplaceCacheDir(created, cacheDir string) error {
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return fmt.Errorf("remove existing cache dir: %w", err)
+	}
+	if err := os.Rename(created, cacheDir); err != nil {
+		_ = os.RemoveAll(created)
+		return fmt.Errorf("rename to cache dir: %w", err)
+	}
+	return nil
 }
