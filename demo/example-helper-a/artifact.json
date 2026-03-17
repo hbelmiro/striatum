@@ -1,0 +1,12 @@
+{
+  "apiVersion": "striatum.dev/v1alpha1",
+  "kind": "Skill",
+  "metadata": {
+    "name": "example-helper-a",
+    "version": "1.0.0"
+  },
+  "spec": {
+    "entrypoint": "SKILL.md",
+    "files": ["SKILL.md"]
+  }
+}

@@ -13,9 +13,11 @@ import (
 
 func newPushCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "push",
-		Short: "Push the artifact to an OCI registry",
-		Args:  cobra.ExactArgs(1),
+		Use:     "push",
+		Short:   "Push the artifact to an OCI registry",
+		Long:    "Packs the current artifact (artifact.json and spec.files) and pushes it to the given reference (e.g. localhost:5000/repo/my-skill:1.0.0).",
+		Example: "  striatum push localhost:5000/skills/my-skill:1.0.0",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
 			wd, err := os.Getwd()

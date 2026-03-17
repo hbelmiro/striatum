@@ -11,9 +11,11 @@ import (
 
 func newInspectCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "inspect",
-		Short: "Display manifest and metadata of a remote artifact",
-		Args:  cobra.ExactArgs(1),
+		Use:     "inspect",
+		Short:   "Display manifest and metadata of a remote artifact",
+		Long:    "Fetches and prints the artifact manifest (name, version, dependencies) without downloading layers. Reference can be a registry or oci:/path:tag.",
+		Example: "  striatum inspect localhost:5000/skills/my-skill:1.0.0",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
 			target, ref, err := resolveTargetAndRef(reference)
