@@ -1,5 +1,5 @@
 # Binaries
-striatum
+/striatum
 *.exe
 *.exe~
 *.dll
