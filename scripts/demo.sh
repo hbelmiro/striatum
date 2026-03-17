@@ -8,12 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEMO_DIR="$REPO_ROOT/demo"
 REGISTRY_NAME="${STRIATUM_DEMO_REGISTRY:-localhost:5000/demo}"
-STRiatUM="${STRIATUM_BIN:-striatum}"
+STRIATUM="${STRIATUM_BIN:-striatum}"
 
 # Ensure we have the binary (use absolute path when in repo so it works from any cwd)
-if ! command -v "$STRiatUM" &>/dev/null; then
+if ! command -v "$STRIATUM" &>/dev/null; then
   if [ -x "$REPO_ROOT/striatum" ]; then
-    STRiatUM="$(cd "$REPO_ROOT" && pwd)/striatum"
+    STRIATUM="$(cd "$REPO_ROOT" && pwd)/striatum"
   else
     echo "Build striatum first: go build -o striatum ./cmd/striatum"
     exit 1
@@ -41,22 +41,22 @@ cd "$REPO_ROOT"
 # Pack and push helpers first, then root
 for dir in example-helper-a example-helper-b example-skill; do
   echo "Packing and pushing $dir..."
-  (cd "$DEMO_DIR/$dir" && "$STRiatUM" pack && "$STRiatUM" push "$REGISTRY_NAME/$dir:1.0.0")
+  (cd "$DEMO_DIR/$dir" && "$STRIATUM" pack && "$STRIATUM" push "$REGISTRY_NAME/$dir:1.0.0")
 done
 
 # Pull root (with transitive deps)
 OUT_DIR="$REPO_ROOT/.demo-out"
 rm -rf "$OUT_DIR"
 echo "Pulling example-skill and dependencies..."
-"$STRiatUM" pull "$REGISTRY_NAME/example-skill:1.0.0" -o "$OUT_DIR"
+"$STRIATUM" pull "$REGISTRY_NAME/example-skill:1.0.0" -o "$OUT_DIR"
 echo "Pulled to $OUT_DIR"
 
 # Install (requires --target)
 echo "Installing to Cursor target..."
-"$STRiatUM" install --target cursor "$REGISTRY_NAME/example-skill:1.0.0"
+"$STRIATUM" install --target cursor "$REGISTRY_NAME/example-skill:1.0.0"
 
 # Uninstall
 echo "Uninstalling example-skill..."
-"$STRiatUM" uninstall --target cursor example-skill
+"$STRIATUM" uninstall --target cursor example-skill
 
 echo "Demo complete: pack → push → pull → install → uninstall."
