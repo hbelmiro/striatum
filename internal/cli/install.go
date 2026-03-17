@@ -15,7 +15,6 @@ import (
 	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 	oras "oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/registry/remote"
 )
 
 func newInstallCmd() *cobra.Command {
@@ -166,7 +165,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 				pullTarget = targetObj
 			} else {
 				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
-				reg, err := remote.NewRepository(repo)
+				reg, err := oci.NewRepository(repo)
 				if err != nil {
 					return fmt.Errorf("create repository for %s: %w", res.Name, err)
 				}

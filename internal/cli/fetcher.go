@@ -8,7 +8,6 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/resolver"
-	"oras.land/oras-go/v2/registry/remote"
 )
 
 // remoteFetcher fetches manifests from a remote registry by reference (host/repo/name:version).
@@ -29,7 +28,7 @@ func (f *remoteFetcher) FetchManifest(ctx context.Context, reference string) (*a
 	if repo == "" || tag == "" {
 		return nil, fmt.Errorf("invalid reference %q: expected host/repo/name:version", reference)
 	}
-	reg, err := remote.NewRepository(repo)
+	reg, err := oci.NewRepository(repo)
 	if err != nil {
 		return nil, fmt.Errorf("create repository for %q: %w", reference, err)
 	}
