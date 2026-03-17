@@ -31,7 +31,7 @@ func newUninstallCmd() *cobra.Command {
 			if projectPath != "" {
 				abs, err := filepath.Abs(strings.TrimSpace(projectPath))
 				if err != nil {
-					return err
+					return fmt.Errorf("resolve project path %q: %w", projectPath, err)
 				}
 				normProject = abs
 			}
@@ -46,7 +46,7 @@ func newUninstallCmd() *cobra.Command {
 func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	entries, err := installer.LoadInstalled()
 	if err != nil {
-		return err
+		return fmt.Errorf("load installed: %w", err)
 	}
 	if entries == nil {
 		entries = []installer.InstalledEntry{}
@@ -73,7 +73,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	for _, e := range toRemove {
 		targetDir, err := installer.Targets(e.Target, e.ProjectPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve target for %s: %w", e.Skill, err)
 		}
 		if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
 			return fmt.Errorf("remove %s from target: %w", e.Skill, err)
@@ -96,7 +96,8 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	}
 
 	// Orphan cleanup: remove entries that are no longer required by any root
-	for {
+	const maxOrphanPasses = 100
+	for pass := 0; pass < maxOrphanPasses; pass++ {
 		orphans, hadUnloadableRoot := computeOrphans(remaining)
 		if hadUnloadableRoot {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Could not load manifest for some installed roots; skipping orphan cleanup")
@@ -108,7 +109,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		for _, e := range orphans {
 			targetDir, err := installer.Targets(e.Target, e.ProjectPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolve target for orphan %s: %w", e.Skill, err)
 			}
 			if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Skill, "from target:", err)
@@ -118,7 +119,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	}
 
 	if err := installer.SaveInstalled(remaining); err != nil {
-		return err
+		return fmt.Errorf("save installed: %w", err)
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Removed", name)
 	return nil

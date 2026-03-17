@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -36,11 +37,8 @@ func TestInstall_HappyPathNoDeps(t *testing.T) {
 	baseDir := t.TempDir()
 	layoutDir := t.TempDir()
 	home := t.TempDir()
-	_ = os.Setenv("STRIATUM_HOME", home)
-	_ = os.Setenv("HOME", home)
-	defer func() {
-		_, _ = os.Unsetenv("STRIATUM_HOME"), os.Unsetenv("HOME")
-	}()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
 
 	manifest := &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha1",
@@ -48,14 +46,17 @@ func TestInstall_HappyPathNoDeps(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "install-test", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := oci.Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -20,11 +19,11 @@ func newInspectCmd() *cobra.Command {
 			reference := args[0]
 			target, ref, err := resolveTargetAndRef(reference)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolve reference: %w", err)
 			}
-			m, err := oci.Inspect(context.Background(), target, ref)
+			m, err := oci.Inspect(cmd.Context(), target, ref)
 			if err != nil {
-				return err
+				return fmt.Errorf("inspect artifact: %w", err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Name:         %s\n", m.Metadata.Name)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Version:      %s\n", m.Metadata.Version)

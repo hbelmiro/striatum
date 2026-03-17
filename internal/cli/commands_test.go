@@ -11,7 +11,10 @@ var subcommands = []string{"init", "validate", "pack", "push", "pull", "install"
 func TestSubcommands_Registered(t *testing.T) {
 	root := NewRootCommand()
 	for _, name := range subcommands {
-		cmd, _, _ := root.Find([]string{name})
+		cmd, _, err := root.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find(%q): %v", name, err)
+		}
 		if cmd == nil {
 			t.Errorf("subcommand %q not registered", name)
 		}
@@ -68,26 +71,6 @@ func TestCommandsRequiringArg_AcceptOneArg(t *testing.T) {
 		// Should not fail with "accepts 1 arg(s)" (wrong arg count); other errors (e.g. invalid ref, not installed) are ok
 		if err != nil && strings.Contains(err.Error(), "accepts ") {
 			t.Errorf("striatum %s: unexpected arg-count error: %v", name, err)
-		}
-	}
-}
-
-// commandsWithNoRequiredArg lists subcommands that take no required args and still show stub output.
-// init, validate, and pack are implemented and have their own tests.
-var commandsWithNoRequiredArg = []string{}
-
-func TestCommandsWithNoRequiredArg_RunExitsZero(t *testing.T) {
-	for _, name := range commandsWithNoRequiredArg {
-		root := NewRootCommand()
-		out := &bytes.Buffer{}
-		root.SetOut(out)
-		root.SetArgs([]string{name})
-		err := root.Execute()
-		if err != nil {
-			t.Errorf("striatum %s: err = %v", name, err)
-		}
-		if got := out.String(); got != "not implemented yet\n" {
-			t.Errorf("striatum %s: output = %q, want %q", name, got, "not implemented yet\n")
 		}
 	}
 }

@@ -31,7 +31,7 @@ func safeLayerPath(name string) (string, error) {
 func Pull(ctx context.Context, target oras.ReadOnlyTarget, ref string, outputDir string) error {
 	m, err := Inspect(ctx, target, ref)
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect artifact: %w", err)
 	}
 
 	desc, err := target.Resolve(ctx, ref)

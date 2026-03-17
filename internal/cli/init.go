@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/spf13/cobra"
@@ -20,6 +21,9 @@ func newInitCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("artifact name is required (use --name)")
+			}
+			if strings.TrimSpace(entrypoint) == "" {
+				return fmt.Errorf("entrypoint must be non-empty")
 			}
 			wd, err := os.Getwd()
 			if err != nil {

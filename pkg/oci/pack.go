@@ -22,7 +22,7 @@ const annotationTitle = "org.opencontainers.image.title"
 // Pack builds an OCI image from the artifact manifest and writes it to the
 // OCI Image Layout at layoutPath. The manifest must be valid; all spec.files
 // must exist under baseDir.
-func Pack(m *artifact.Manifest, baseDir string, layoutPath string) error {
+func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string) error {
 	if m == nil {
 		return errors.New("manifest is nil")
 	}
@@ -31,7 +31,7 @@ func Pack(m *artifact.Manifest, baseDir string, layoutPath string) error {
 		return fmt.Errorf("create OCI store: %w", err)
 	}
 	tag := m.Metadata.Name + ":" + m.Metadata.Version
-	return packToTarget(context.Background(), m, baseDir, store, tag)
+	return packToTarget(ctx, m, baseDir, store, tag)
 }
 
 // packToTarget pushes the artifact (config + layers + manifest) to target and tags it.
@@ -43,7 +43,7 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		return fmt.Errorf("validate manifest: %w", err)
 	}
 	if err := artifact.ValidateLocal(m, baseDir); err != nil {
-		return err
+		return fmt.Errorf("validate local files: %w", err)
 	}
 
 	configBytes, err := json.Marshal(m)

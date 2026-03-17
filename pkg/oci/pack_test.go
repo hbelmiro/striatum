@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -20,7 +21,10 @@ func TestPack_CreatesOCILayout(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "my-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +32,7 @@ func TestPack_CreatesOCILayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Pack(manifest, baseDir, layoutDir); err != nil {
+	if err := Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
 		t.Fatalf("Pack() err = %v", err)
 	}
 
@@ -44,7 +48,7 @@ func TestPack_CreatesOCILayout(t *testing.T) {
 func TestPack_RequiresValidManifest(t *testing.T) {
 	baseDir := t.TempDir()
 	layoutDir := t.TempDir()
-	if err := Pack(nil, baseDir, layoutDir); err == nil {
+	if err := Pack(context.Background(), nil, baseDir, layoutDir); err == nil {
 		t.Error("Pack(nil) err = nil, want error")
 	}
 }
@@ -58,7 +62,10 @@ func TestPack_MissingFileReturnsError(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "x", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "missing.md"}},
 	}
-	data, _ := json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +73,7 @@ func TestPack_MissingFileReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Pack(manifest, baseDir, layoutDir); err == nil {
+	if err := Pack(context.Background(), manifest, baseDir, layoutDir); err == nil {
 		t.Error("Pack with missing file: err = nil, want error")
 	}
 }

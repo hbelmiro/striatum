@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,13 +29,13 @@ func newValidateCmd() *cobra.Command {
 			path := filepath.Join(wd, defaultManifestName)
 			m, err := artifact.Load(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("load manifest: %w", err)
 			}
 			if err := artifact.Validate(m); err != nil {
 				return fmt.Errorf("invalid manifest: %w", err)
 			}
 			if err := artifact.ValidateLocal(m, wd); err != nil {
-				return err
+				return fmt.Errorf("validate local files: %w", err)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "artifact.json is valid.")
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All files referenced in spec.files exist.")
@@ -46,9 +45,9 @@ func newValidateCmd() *cobra.Command {
 				if registry == "" {
 					return fmt.Errorf("--registry is required when using --check-deps")
 				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Resolving dependency tree…")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Resolving dependency tree...")
 				fetcher := NewRemoteFetcher()
-				resolved, err := resolver.Resolve(context.Background(), m, registry, fetcher)
+				resolved, err := resolver.Resolve(cmd.Context(), m, registry, fetcher)
 				if err != nil {
 					return fmt.Errorf("resolving dependencies: %w", err)
 				}

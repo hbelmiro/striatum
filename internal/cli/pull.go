@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,9 +31,9 @@ func newPullCmd() *cobra.Command {
 			}
 			target, ref, err := resolveTargetAndRef(reference)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolve reference: %w", err)
 			}
-			ctx := context.Background()
+			ctx := cmd.Context()
 			rootManifest, err := oci.Inspect(ctx, target, ref)
 			if err != nil {
 				return fmt.Errorf("inspect artifact: %w", err)
@@ -53,7 +52,7 @@ func newPullCmd() *cobra.Command {
 
 			if len(rootManifest.Dependencies) == 0 {
 				if err := oci.Pull(ctx, target, ref, outputDir); err != nil {
-					return err
+					return fmt.Errorf("pull artifact: %w", err)
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
 				return nil
@@ -113,31 +112,22 @@ func deriveDefaultRegistry(reference string) string {
 }
 
 // resolveTargetAndRef parses reference and returns a read-only target and the ref to resolve (tag).
-// Supports "oci:/path:tag" or "oci:path:name:version" (tag after first colon), and "oci:C:\path:tag" on Windows
-// (split on last colon when path contains backslash so drive letter is not treated as separator).
 func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, error) {
 	if strings.HasPrefix(reference, "oci:") {
-		rest := reference[len("oci:"):]
-		i := strings.Index(rest, ":")
-		if i < 0 {
-			return nil, "", fmt.Errorf("invalid oci reference %q: missing tag", reference)
+		layoutPath, tag, err := oci.SplitReference(reference)
+		if err != nil {
+			return nil, "", err
 		}
-		// Windows paths like C:\layout:tag: use last colon so drive letter isn't the separator
-		if strings.Contains(rest[:i], "\\") {
-			i = strings.LastIndex(rest, ":")
-		}
-		layoutPath, tag := rest[:i], rest[i+1:]
 		store, err := orasoci.New(layoutPath)
 		if err != nil {
 			return nil, "", fmt.Errorf("open OCI layout: %w", err)
 		}
 		return store, tag, nil
 	}
-	i := strings.LastIndex(reference, ":")
-	if i < 0 {
-		return nil, "", fmt.Errorf("invalid reference %q: missing tag", reference)
+	repo, tag, err := oci.SplitReference(reference)
+	if err != nil {
+		return nil, "", err
 	}
-	repo, tag := reference[:i], reference[i+1:]
 	reg, err := remote.NewRepository(repo)
 	if err != nil {
 		return nil, "", fmt.Errorf("create repository: %w", err)

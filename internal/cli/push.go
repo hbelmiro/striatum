@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,16 +26,16 @@ func newPushCmd() *cobra.Command {
 			manifestPath := filepath.Join(wd, defaultManifestName)
 			m, err := artifact.Load(manifestPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("load manifest: %w", err)
 			}
 			if err := artifact.Validate(m); err != nil {
 				return fmt.Errorf("invalid manifest: %w", err)
 			}
 			if err := artifact.ValidateLocal(m, wd); err != nil {
-				return err
+				return fmt.Errorf("validate local files: %w", err)
 			}
-			if err := oci.Push(context.Background(), m, wd, reference); err != nil {
-				return err
+			if err := oci.Push(cmd.Context(), m, wd, reference); err != nil {
+				return fmt.Errorf("push artifact: %w", err)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pushed to", reference)
 			return nil

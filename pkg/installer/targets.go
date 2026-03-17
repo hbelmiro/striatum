@@ -7,7 +7,8 @@ import (
 )
 
 // Targets returns the absolute path of the skills directory for the given target and optional project path.
-// target must be "cursor" or "claude". If projectPath is non-empty, returns <projectPath>/.cursor/skills or .claude/skills; otherwise uses home (e.g. ~/.cursor/skills).
+// target must be "cursor" or "claude". projectPath should already be absolute when provided;
+// if relative, it is resolved via filepath.Abs. When empty, the user's home directory is used.
 func Targets(target, projectPath string) (string, error) {
 	switch target {
 	case "cursor", "claude":
@@ -19,11 +20,14 @@ func Targets(target, projectPath string) (string, error) {
 	base := "skills"
 	var baseDir string
 	if projectPath != "" {
-		abs, err := filepath.Abs(projectPath)
-		if err != nil {
-			return "", err
+		if !filepath.IsAbs(projectPath) {
+			abs, err := filepath.Abs(projectPath)
+			if err != nil {
+				return "", err
+			}
+			projectPath = abs
 		}
-		baseDir = filepath.Join(abs, subdir, base)
+		baseDir = filepath.Join(projectPath, subdir, base)
 	} else {
 		home := os.Getenv("HOME")
 		if home == "" {
@@ -86,11 +90,15 @@ func copyDir(src, dst string) error {
 				return err
 			}
 		} else {
+			info, err := e.Info()
+			if err != nil {
+				return err
+			}
 			data, err := os.ReadFile(srcPath)
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(dstPath, data, 0o600); err != nil {
+			if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
 				return err
 			}
 		}
