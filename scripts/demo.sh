@@ -2,7 +2,7 @@
 # Demo: pack fictitious artifacts (example-skill + deps), push to a local registry,
 # pull, install, and uninstall. Requires Docker for the registry unless
 # STRIATUM_DEMO_REGISTRY is set to an already-running registry base (e.g. localhost:5000/demo).
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
