@@ -46,12 +46,12 @@ func newValidateCmd() *cobra.Command {
 				if registry == "" {
 					return fmt.Errorf("--registry is required when using --check-deps")
 				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Resolving dependency tree…")
 				fetcher := NewRemoteFetcher()
 				resolved, err := resolver.Resolve(context.Background(), m, registry, fetcher)
 				if err != nil {
 					return fmt.Errorf("resolving dependencies: %w", err)
 				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Resolving dependency tree…")
 				directNames := make(map[string]bool)
 				for _, d := range m.Dependencies {
 					directNames[d.Name+"@"+d.Version] = true
