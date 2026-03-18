@@ -30,6 +30,7 @@ go test -tags=integration ./...
 - `striatum install <reference>` — install into Cursor/Claude skills directories
 - `striatum uninstall <name>` — remove an installed skill
 - `striatum inspect <reference>` — show remote artifact metadata
+- `striatum skill list` — list skills in local cache; use `--installed` to list installed skills (optional `--target cursor|claude`)
 
 ### Usage examples
 
@@ -43,6 +44,8 @@ striatum pull localhost:5000/skills/my-skill:1.0.0
 striatum install --target cursor localhost:5000/skills/my-skill:1.0.0
 striatum uninstall --target cursor my-skill
 striatum inspect localhost:5000/skills/my-skill:1.0.0
+striatum skill list
+striatum skill list --installed --target cursor
 ```
 
 See [docs/MVP.md](docs/MVP.md) for the full specification and [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
