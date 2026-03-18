@@ -26,6 +26,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newInstallCmd())
 	cmd.AddCommand(newUninstallCmd())
 	cmd.AddCommand(newInspectCmd())
+	cmd.AddCommand(newSkillCmd())
 	return cmd
 }
 

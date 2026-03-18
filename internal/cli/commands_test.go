@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var subcommands = []string{"init", "validate", "pack", "push", "pull", "install", "uninstall", "inspect"}
+var subcommands = []string{"init", "validate", "pack", "push", "pull", "install", "uninstall", "inspect", "skill"}
 
 func TestSubcommands_Registered(t *testing.T) {
 	root := NewRootCommand()
@@ -72,6 +72,16 @@ func TestCommandsRequiringArg_AcceptOneArg(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "accepts ") {
 			t.Errorf("striatum %s: unexpected arg-count error: %v", name, err)
 		}
+	}
+}
+
+func TestSkillList_HelpExitsZero(t *testing.T) {
+	root := NewRootCommand()
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--help"})
+	if err := root.Execute(); err != nil {
+		t.Errorf("striatum skill list --help: err = %v", err)
 	}
 }
 
