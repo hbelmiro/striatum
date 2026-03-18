@@ -19,17 +19,24 @@ func newInitCmd() *cobra.Command {
 		Long:    "Creates an artifact.json in the current directory with the given name, version, and kind. Requires --name, --kind, and --entrypoint.",
 		Example: "  striatum init --name my-skill --kind Skill --entrypoint SKILL.md",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name = strings.TrimSpace(name)
+			kind = strings.TrimSpace(kind)
+			entrypoint = strings.TrimSpace(entrypoint)
 			if name == "" {
 				return fmt.Errorf("artifact name is required (use --name)")
 			}
-			if strings.TrimSpace(kind) == "" {
+			if kind == "" {
 				return fmt.Errorf("artifact kind is required (use --kind)")
 			}
 			if !artifact.IsSupportedKind(kind) {
-				return fmt.Errorf("unsupported kind %q", kind)
+				return fmt.Errorf("unsupported kind %q; supported: %s", kind, artifact.SupportedKindsList())
 			}
-			if strings.TrimSpace(entrypoint) == "" {
+			if entrypoint == "" {
 				return fmt.Errorf("entrypoint is required (use --entrypoint)")
+			}
+			version = strings.TrimSpace(version)
+			if version == "" {
+				version = "0.1.0"
 			}
 			wd, err := os.Getwd()
 			if err != nil {
@@ -40,6 +47,9 @@ func newInitCmd() *cobra.Command {
 				Kind:       kind,
 				Metadata:   artifact.Metadata{Name: name, Version: version},
 				Spec:       artifact.Spec{Entrypoint: entrypoint, Files: []string{entrypoint}},
+			}
+			if err := artifact.Validate(m); err != nil {
+				return fmt.Errorf("invalid manifest: %w", err)
 			}
 			path := filepath.Join(wd, "artifact.json")
 			data, err := json.MarshalIndent(m, "", "  ")

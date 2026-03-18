@@ -23,6 +23,12 @@ func IsSupportedKind(kind string) bool {
 	return supportedKinds[kind]
 }
 
+// SupportedKindsList returns a comma-separated list of supported artifact kinds (e.g. "Skill").
+// Useful for error messages when kind validation fails.
+func SupportedKindsList() string {
+	return supportedKindsList()
+}
+
 // Manifest is the root type for artifact.json.
 type Manifest struct {
 	APIVersion   string       `json:"apiVersion"`

@@ -93,6 +93,29 @@ func TestListCachedSkills_MultipleEntriesSorted(t *testing.T) {
 	}
 }
 
+func TestListCachedSkills_SkipsNonSkillKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	cacheDir := CacheDir("other-type", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Valid manifest but kind is not Skill — should be omitted from list
+	writeArtifactManifest(t, cacheDir, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha1",
+		Kind:       "VectorIndex",
+		Metadata:   artifact.Metadata{Name: "other-type", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "index.json", Files: []string{"index.json"}},
+	})
+	got, err := ListCachedSkills()
+	if err != nil {
+		t.Fatalf("ListCachedSkills(): err = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("len(got) = %d, want 0 (non-Skill kind should be skipped)", len(got))
+	}
+}
+
 func TestListCachedSkills_SkipsCorruptManifest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
