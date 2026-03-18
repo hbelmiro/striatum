@@ -152,6 +152,36 @@ func TestInstall_FromCache_WhenRefMapsToCachedSkill_SucceedsWithoutInspect(t *te
 	}
 }
 
+// TestInstall_ShortRefWithDepsRequiresRegistry ensures short ref with dependencies fails without --registry.
+func TestInstall_ShortRefWithDepsRequiresRegistry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	// Cache has root with deps
+	cacheDir := installer.CacheDir("example-skill", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := &artifact.Manifest{
+		APIVersion:   "striatum.dev/v1alpha1",
+		Kind:         "Skill",
+		Metadata:     artifact.Metadata{Name: "example-skill", Version: "1.0.0"},
+		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{{Name: "example-helper-a", Version: "1.0.0"}},
+	}
+	data, _ := json.Marshal(manifest)
+	_ = os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600)
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "example-skill:1.0.0"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for short ref with deps and no --registry")
+	}
+	if !strings.Contains(err.Error(), "short ref with dependencies requires --registry") {
+		t.Errorf("error should mention --registry: %v", err)
+	}
+}
+
 // TestInstall_FromCache_WithDependencies ensures install uses cache for root and deps when all are cached.
 func TestInstall_FromCache_WithDependencies(t *testing.T) {
 	home := t.TempDir()
@@ -193,11 +223,11 @@ func TestInstall_FromCache_WithDependencies(t *testing.T) {
 		}
 	}
 
-	// Install with ref that has no real registry (all from cache)
+	// Install with short ref + --registry (all from cache; registry required for short ref with deps)
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "example-skill:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "--registry", "example-registry", "example-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install from cache with deps: %v", err)
 	}

@@ -43,8 +43,9 @@ func newUninstallCmd() *cobra.Command {
 	return cmd
 }
 
-// normalizeUninstallName maps "name:version" to "name" so uninstall accepts the same ref style as install.
-// Only applied when arg looks like a plain name:version (no '/', not "oci:"); full refs are left unchanged.
+// normalizeUninstallName maps a plain name:version (no '/', not "oci:") to name so uninstall
+// accepts the same short ref style as install. Full registry refs and oci: refs are left unchanged;
+// for those, pass the skill name as stored in the install DB (not the full reference).
 func normalizeUninstallName(arg string) string {
 	arg = strings.TrimSpace(arg)
 	if strings.Contains(arg, "/") || strings.HasPrefix(arg, "oci:") {

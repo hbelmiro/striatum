@@ -170,6 +170,11 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			if err == nil && m != nil && m.Kind == "Skill" &&
 				m.Metadata.Name == name && m.Metadata.Version == version {
 				rootManifest = m
+			} else {
+				// Load failed or manifest mismatch: remove corrupt entry so EnsureInCache will re-pull.
+				if err := os.Remove(manifestPath); err != nil {
+					return fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, err)
+				}
 			}
 		case !os.IsNotExist(statErr):
 			return fmt.Errorf("stat cache for %s@%s: %w", name, version, statErr)
@@ -190,12 +195,19 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 		}
 	}
 	isOCI := strings.HasPrefix(reference, "oci:")
+	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
 	registry := deriveDefaultRegistry(reference)
 	if isOCI && len(rootManifest.Dependencies) > 0 {
 		if registryFlag == "" {
 			return fmt.Errorf("install with oci: reference and dependencies requires --registry")
 		}
 		registry = registryFlag
+	}
+	if isShortRef && len(rootManifest.Dependencies) > 0 && strings.TrimSpace(registryFlag) == "" {
+		return fmt.Errorf("short ref with dependencies requires --registry (or use a full reference)")
+	}
+	if isShortRef && len(rootManifest.Dependencies) > 0 {
+		registry = strings.TrimSpace(registryFlag)
 	}
 
 	var resolved []resolver.ResolvedArtifact
@@ -306,7 +318,6 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	}
 	// Short ref (e.g. "example-skill:1.0.0") has no registry; do not persist derived value
 	// so --reinstall-all does not build invalid pull refs like "example-skill/example-skill:1.0.0".
-	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
 	for _, r := range resolved {
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {
