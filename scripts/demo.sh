@@ -51,12 +51,12 @@ echo "Pulling example-skill and dependencies..."
 "$STRIATUM" pull "$REGISTRY_NAME/example-skill:1.0.0" -o "$OUT_DIR"
 echo "Pulled to $OUT_DIR"
 
-# Install (requires --target)
+# Skill install (requires --target)
 echo "Installing to Cursor target..."
-"$STRIATUM" install --target cursor "$REGISTRY_NAME/example-skill:1.0.0"
+"$STRIATUM" skill install --target cursor "$REGISTRY_NAME/example-skill:1.0.0"
 
-# Uninstall
+# Skill uninstall
 echo "Uninstalling example-skill..."
-"$STRIATUM" uninstall --target cursor example-skill
+"$STRIATUM" skill uninstall --target cursor example-skill
 
-echo "Demo complete: pack → push → pull → install → uninstall."
+echo "Demo complete: pack → push → pull → skill install → skill uninstall."

@@ -16,14 +16,27 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "init",
 		Short:   "Scaffold an artifact.json in the current directory",
-		Long:    "Creates an artifact.json in the current directory with the given name, version, and kind. The entrypoint file (default SKILL.md) is added to spec.files.",
-		Example: "  striatum init --name my-skill",
+		Long:    "Creates an artifact.json in the current directory with the given name, version, and kind. Requires --name, --kind, and --entrypoint.",
+		Example: "  striatum init --name my-skill --kind Skill --entrypoint SKILL.md",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name = strings.TrimSpace(name)
+			kind = strings.TrimSpace(kind)
+			entrypoint = strings.TrimSpace(entrypoint)
 			if name == "" {
 				return fmt.Errorf("artifact name is required (use --name)")
 			}
-			if strings.TrimSpace(entrypoint) == "" {
-				return fmt.Errorf("entrypoint must be non-empty")
+			if kind == "" {
+				return fmt.Errorf("artifact kind is required (use --kind)")
+			}
+			if !artifact.IsSupportedKind(kind) {
+				return fmt.Errorf("unsupported kind %q; supported: %s", kind, artifact.SupportedKindsList())
+			}
+			if entrypoint == "" {
+				return fmt.Errorf("entrypoint is required (use --entrypoint)")
+			}
+			version = strings.TrimSpace(version)
+			if version == "" {
+				version = "0.1.0"
 			}
 			wd, err := os.Getwd()
 			if err != nil {
@@ -34,6 +47,9 @@ func newInitCmd() *cobra.Command {
 				Kind:       kind,
 				Metadata:   artifact.Metadata{Name: name, Version: version},
 				Spec:       artifact.Spec{Entrypoint: entrypoint, Files: []string{entrypoint}},
+			}
+			if err := artifact.Validate(m); err != nil {
+				return fmt.Errorf("invalid manifest: %w", err)
 			}
 			path := filepath.Join(wd, "artifact.json")
 			data, err := json.MarshalIndent(m, "", "  ")
@@ -49,8 +65,10 @@ func newInitCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Artifact name (required)")
 	cmd.Flags().StringVar(&version, "version", "0.1.0", "Artifact version")
-	cmd.Flags().StringVar(&kind, "kind", "Skill", "Artifact kind")
-	cmd.Flags().StringVar(&entrypoint, "entrypoint", "SKILL.md", "Entrypoint file (must be in spec.files)")
+	cmd.Flags().StringVar(&kind, "kind", "", "Artifact kind (required, e.g. Skill)")
+	cmd.Flags().StringVar(&entrypoint, "entrypoint", "", "Entrypoint file (required)")
 	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("kind")
+	_ = cmd.MarkFlagRequired("entrypoint")
 	return cmd
 }

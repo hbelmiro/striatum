@@ -54,6 +54,9 @@ func ListCachedSkills() ([]CachedSkill, error) {
 		if err != nil {
 			continue
 		}
+		if m.Kind != "Skill" {
+			continue
+		}
 		result = append(result, CachedSkill{Name: skillName, Version: version, Description: m.Metadata.Description})
 	}
 	sort.Slice(result, func(i, j int) bool {

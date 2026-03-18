@@ -35,12 +35,12 @@ go test -tags=integration ./...
 
 | Command | Purpose |
 | ------- | ------- |
-| `striatum init` | Scaffold `artifact.json` |
+| `striatum init` | Scaffold `artifact.json` (requires `--name`, `--kind`, `--entrypoint`) |
 | `striatum validate` | Validate artifact (optional `--check-deps`) |
 | `striatum pack` | Bundle into local OCI Image Layout |
 | `striatum push <ref>` | Push to OCI registry |
 | `striatum pull <ref>` | Pull artifact and deps |
-| `striatum install <ref>` | Install into Cursor/Claude skills dirs |
-| `striatum uninstall <name>` | Remove installed skill |
 | `striatum inspect <ref>` | Show remote artifact metadata |
+| `striatum skill install <ref>` | Install skill into Cursor/Claude skills dirs |
+| `striatum skill uninstall <name>` | Remove installed skill |
 | `striatum skill list` | List cached skills; use `--installed --target cursor` or `--target claude` for installed |

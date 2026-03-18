@@ -14,7 +14,7 @@ import (
 
 func TestInstall_MissingTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"install", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "localhost:5000/skills/foo:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("install without --target: expected error")
@@ -26,7 +26,7 @@ func TestInstall_MissingTargetErrors(t *testing.T) {
 
 func TestInstall_InvalidTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"install", "--target", "all", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "all", "localhost:5000/skills/foo:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("install --target all: expected error")
@@ -63,7 +63,7 @@ func TestInstall_HappyPathNoDeps(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":install-test:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":install-test:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}

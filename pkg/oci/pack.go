@@ -74,7 +74,7 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		ConfigDescriptor: &configDesc,
 		Layers:           layers,
 	}
-	manifestDesc, err := oras.PackManifest(ctx, target, oras.PackManifestVersion1_1, ArtifactType, opts)
+	manifestDesc, err := oras.PackManifest(ctx, target, oras.PackManifestVersion1_1, ArtifactTypeForKind(m.Kind), opts)
 	if err != nil {
 		return fmt.Errorf("pack manifest: %w", err)
 	}

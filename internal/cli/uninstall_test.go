@@ -13,7 +13,7 @@ import (
 
 func TestUninstall_MissingTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"uninstall", "foo"})
+	root.SetArgs([]string{"skill", "uninstall", "foo"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall without --target: expected error")
@@ -29,7 +29,7 @@ func TestUninstall_UnknownNameErrors(t *testing.T) {
 	t.Setenv("HOME", home)
 	// No DB or empty DB
 	root := NewRootCommand()
-	root.SetArgs([]string{"uninstall", "--target", "cursor", "nonexistent"})
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "nonexistent"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall unknown name: expected error")
@@ -91,7 +91,7 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestUninstall_SkipsOrphanCleanupWhenRootManifestUnloadable(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
