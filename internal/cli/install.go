@@ -78,7 +78,7 @@ func runReinstallAll(cmd *cobra.Command) error {
 			}
 			if strings.TrimSpace(e.Registry) == "" {
 				e.Status = "error"
-				e.LastError = "cannot re-pull: entry has no registry (e.g. was installed from oci: layout); re-install from original source"
+				e.LastError = "cannot re-pull: entry has no registry (e.g. was installed from oci: layout or cache-only name:version); re-install from original source"
 				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
 					return fmt.Errorf("%s@%s: %s (also failed to persist state: %v)", e.Skill, e.Version, e.LastError, saveErr)
@@ -164,15 +164,21 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	if name, version, ok := refToCacheCandidate(reference); ok {
 		cacheDir := installer.CacheDir(name, version)
 		manifestPath := filepath.Join(cacheDir, "artifact.json")
-		if _, err := os.Stat(manifestPath); err == nil {
+		switch _, statErr := os.Stat(manifestPath); {
+		case statErr == nil:
 			m, err := artifact.Load(manifestPath)
 			if err == nil && m != nil && m.Kind == "Skill" &&
 				m.Metadata.Name == name && m.Metadata.Version == version {
 				rootManifest = m
 			}
+		case !os.IsNotExist(statErr):
+			return fmt.Errorf("stat cache for %s@%s: %w", name, version, statErr)
 		}
 	}
 	if rootManifest == nil {
+		if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
+			return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
+		}
 		var err error
 		targetObj, ref, err = resolveTargetAndRef(reference)
 		if err != nil {

@@ -35,11 +35,7 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 		if os.IsNotExist(err) {
 			m, err := f.next.FetchManifest(ctx, reference)
 			if err != nil {
-				pathForMsg := manifestPath
-				if abs, absErr := filepath.Abs(manifestPath); absErr == nil && abs != "" {
-					pathForMsg = abs
-				}
-				return nil, fmt.Errorf("%s@%s cache miss at %s; remote fetch failed: %w", name, version, pathForMsg, err)
+				return nil, fmt.Errorf("%s@%s cache miss; remote fetch failed: %w", name, version, err)
 			}
 			return m, nil
 		}
