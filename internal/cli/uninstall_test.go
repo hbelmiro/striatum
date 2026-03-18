@@ -32,6 +32,9 @@ func TestNormalizeUninstallName(t *testing.T) {
 		{"my-skill", "my-skill"},
 		{"foo:1.0.0", "foo"},
 		{"  a:b  ", "a"},
+		// Full refs and oci: refs are left unchanged (no normalization)
+		{"localhost:5000/skills/foo:1.0.0", "localhost:5000/skills/foo:1.0.0"},
+		{"oci:/path/layout:my-skill:1.0.0", "oci:/path/layout:my-skill:1.0.0"},
 	}
 	for _, tt := range tests {
 		got := normalizeUninstallName(tt.arg)

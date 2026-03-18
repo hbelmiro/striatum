@@ -220,6 +220,9 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			pullRef := ref
 			if idx == 0 {
 				pullTarget = targetObj
+				if pullTarget == nil {
+					return fmt.Errorf("root artifact was loaded from cache but cache is no longer present; re-run with a full reference (e.g. host/repo/name:tag) to pull from registry")
+				}
 			} else {
 				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
 				reg, err := oci.NewRepository(repo)
@@ -289,16 +292,23 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 		key := e.Skill + "|" + e.Target + "|" + e.ProjectPath
 		byKey[key] = e
 	}
+	// Short ref (e.g. "example-skill:1.0.0") has no registry; do not persist derived value
+	// so --reinstall-all does not build invalid pull refs like "example-skill/example-skill:1.0.0".
+	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
 	for _, r := range resolved {
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {
 			installedWith = ""
 		}
+		reg := r.Registry
+		if isShortRef {
+			reg = ""
+		}
 		key := r.Name + "|" + target + "|" + normProject
 		byKey[key] = &installer.InstalledEntry{
 			Skill:         r.Name,
 			Version:       r.Version,
-			Registry:      r.Registry,
+			Registry:      reg,
 			Target:        target,
 			ProjectPath:   normProject,
 			InstalledWith: installedWith,

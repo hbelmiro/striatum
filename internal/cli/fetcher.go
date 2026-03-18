@@ -39,7 +39,7 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 				if abs == "" {
 					abs = manifestPath
 				}
-				return nil, fmt.Errorf("%s@%s not in cache at %s: %w", name, version, abs, err)
+				return nil, fmt.Errorf("%s@%s cache miss at %s; remote fetch failed: %w", name, version, abs, err)
 			}
 			return m, nil
 		}
