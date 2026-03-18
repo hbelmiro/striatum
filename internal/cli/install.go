@@ -115,15 +115,72 @@ func runReinstallAll(cmd *cobra.Command) error {
 	return nil
 }
 
+// refToCacheCandidate derives a cache key (name, version) from a reference when possible.
+// Registry refs (host/repo/path:tag) use the last path segment as name and tag as version.
+// OCI refs (oci:/path:tag) use tag; if tag contains ":", split on last ":" for name and version.
+// Returns ok=false when the reference cannot be mapped to name@version (e.g. oci tag is version-only).
+func refToCacheCandidate(reference string) (name, version string, ok bool) {
+	if strings.HasPrefix(reference, "oci:") {
+		_, tag, err := oci.SplitReference(reference)
+		if err != nil {
+			return "", "", false
+		}
+		i := strings.LastIndex(tag, ":")
+		if i <= 0 || i == len(tag)-1 {
+			return "", "", false
+		}
+		name = strings.TrimSpace(tag[:i])
+		version = strings.TrimSpace(tag[i+1:])
+		if name == "" || version == "" {
+			return "", "", false
+		}
+		return name, version, true
+	}
+	repo, tag, err := oci.SplitReference(reference)
+	if err != nil {
+		return "", "", false
+	}
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return "", "", false
+	}
+	name = repo
+	if i := strings.LastIndex(repo, "/"); i >= 0 {
+		name = repo[i+1:]
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", "", false
+	}
+	return name, tag, true
+}
+
 func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag string, force bool) error {
 	ctx := cmd.Context()
-	targetObj, ref, err := resolveTargetAndRef(reference)
-	if err != nil {
-		return fmt.Errorf("resolve reference: %w", err)
+	var targetObj oras.ReadOnlyTarget
+	var ref string
+	var rootManifest *artifact.Manifest
+
+	if name, version, ok := refToCacheCandidate(reference); ok {
+		cacheDir := installer.CacheDir(name, version)
+		manifestPath := filepath.Join(cacheDir, "artifact.json")
+		if _, err := os.Stat(manifestPath); err == nil {
+			m, err := artifact.Load(manifestPath)
+			if err == nil && m != nil && m.Kind == "Skill" {
+				rootManifest = m
+			}
+		}
 	}
-	rootManifest, err := oci.Inspect(ctx, targetObj, ref)
-	if err != nil {
-		return fmt.Errorf("inspect artifact: %w", err)
+	if rootManifest == nil {
+		var err error
+		targetObj, ref, err = resolveTargetAndRef(reference)
+		if err != nil {
+			return fmt.Errorf("resolve reference: %w", err)
+		}
+		rootManifest, err = oci.Inspect(ctx, targetObj, ref)
+		if err != nil {
+			return fmt.Errorf("inspect artifact: %w", err)
+		}
 	}
 	isOCI := strings.HasPrefix(reference, "oci:")
 	registry := deriveDefaultRegistry(reference)
@@ -143,7 +200,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			Manifest: rootManifest,
 		}}
 	} else {
-		fetcher := NewRemoteFetcher()
+		fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
 		var err error
 		resolved, err = resolver.Resolve(ctx, rootManifest, registry, fetcher)
 		if err != nil {

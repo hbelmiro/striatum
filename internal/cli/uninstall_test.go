@@ -23,6 +23,24 @@ func TestUninstall_MissingTargetErrors(t *testing.T) {
 	}
 }
 
+func TestNormalizeUninstallName(t *testing.T) {
+	tests := []struct {
+		arg  string
+		want string
+	}{
+		{"example-skill:1.0.0", "example-skill"},
+		{"my-skill", "my-skill"},
+		{"foo:1.0.0", "foo"},
+		{"  a:b  ", "a"},
+	}
+	for _, tt := range tests {
+		got := normalizeUninstallName(tt.arg)
+		if got != tt.want {
+			t.Errorf("normalizeUninstallName(%q) = %q, want %q", tt.arg, got, tt.want)
+		}
+	}
+}
+
 func TestUninstall_UnknownNameErrors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
@@ -100,6 +118,55 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(targetDir, "skill-b")); !os.IsNotExist(err) {
 		t.Error("skill-b (orphan) dir should be removed")
+	}
+	entries, err2 := installer.LoadInstalled()
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty after uninstall, got %d entries", len(entries))
+	}
+}
+
+func TestUninstall_AcceptsNameVersionRef(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha1",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "example-skill", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	cacheDir := installer.CacheDir("example-skill", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, cacheDir, manifest)
+	targetDir, err := installer.Targets("cursor", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, targetDir, "example-skill"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "example-skill", Version: "1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "example-skill:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall with name:version ref: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "example-skill")); !os.IsNotExist(err) {
+		t.Error("example-skill dir should be removed")
 	}
 	entries, err2 := installer.LoadInstalled()
 	if err2 != nil {
