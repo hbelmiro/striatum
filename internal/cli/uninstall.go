@@ -19,7 +19,7 @@ func newUninstallCmd() *cobra.Command {
 		Example: "  striatum skill uninstall --target cursor my-skill",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
+			name := normalizeUninstallName(args[0])
 			target = strings.TrimSpace(target)
 			if target == "" {
 				return fmt.Errorf("--target is required (cursor or claude)")
@@ -41,6 +41,20 @@ func newUninstallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", "", "Uninstall from target: cursor or claude (required)")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path (match project-level install)")
 	return cmd
+}
+
+// normalizeUninstallName maps a plain name:version (no '/', not "oci:") to name so uninstall
+// accepts the same short ref style as install. Full registry refs and oci: refs are left unchanged;
+// for those, pass the skill name as stored in the install DB (not the full reference).
+func normalizeUninstallName(arg string) string {
+	arg = strings.TrimSpace(arg)
+	if strings.Contains(arg, "/") || strings.HasPrefix(arg, "oci:") {
+		return arg
+	}
+	if i := strings.LastIndex(arg, ":"); i > 0 && i < len(arg)-1 {
+		return strings.TrimSpace(arg[:i])
+	}
+	return arg
 }
 
 func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
