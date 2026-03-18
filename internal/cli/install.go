@@ -324,7 +324,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			installedWith = ""
 		}
 		reg := r.Registry
-		if isShortRef {
+		if isShortRef && installedWith == "" {
+			// Root from short ref: no registry to persist. Deps keep registry so --reinstall-all can re-pull them.
 			reg = ""
 		}
 		key := r.Name + "|" + target + "|" + normProject

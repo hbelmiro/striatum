@@ -169,11 +169,16 @@ func TestInstall_ShortRefWithDepsRequiresRegistry(t *testing.T) {
 		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		Dependencies: []artifact.Dependency{{Name: "example-helper-a", Version: "1.0.0"}},
 	}
-	data, _ := json.Marshal(manifest)
-	_ = os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	root := NewRootCommand()
 	root.SetArgs([]string{"skill", "install", "--target", "cursor", "example-skill:1.0.0"})
-	err := root.Execute()
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for short ref with deps and no --registry")
 	}

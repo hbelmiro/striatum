@@ -43,9 +43,11 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 	}
 	m, err := artifact.Load(manifestPath)
 	if err != nil {
-		return nil, fmt.Errorf("load cached manifest %s@%s: %w", name, version, err)
+		// Cache corruption (unreadable); remove and delegate so resolution can recover via remote.
+		_ = os.Remove(manifestPath)
+		return f.next.FetchManifest(ctx, reference)
 	}
-	if m.Metadata.Name != name || m.Metadata.Version != version {
+	if m.Metadata.Name != name || m.Metadata.Version != version || m.Kind != "Skill" {
 		// Cache corruption; remove so downstream re-pulls instead of using wrong artifact.
 		if err := os.Remove(manifestPath); err != nil {
 			return nil, fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, err)
