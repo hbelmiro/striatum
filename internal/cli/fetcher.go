@@ -49,6 +49,10 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 	if err != nil {
 		return nil, fmt.Errorf("load cached manifest %s@%s: %w", name, version, err)
 	}
+	if m.Metadata.Name != name || m.Metadata.Version != version {
+		// Cache entry mismatch; treat as cache miss and delegate to remote.
+		return f.next.FetchManifest(ctx, reference)
+	}
 	return m, nil
 }
 

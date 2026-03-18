@@ -166,7 +166,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 		manifestPath := filepath.Join(cacheDir, "artifact.json")
 		if _, err := os.Stat(manifestPath); err == nil {
 			m, err := artifact.Load(manifestPath)
-			if err == nil && m != nil && m.Kind == "Skill" {
+			if err == nil && m != nil && m.Kind == "Skill" &&
+				m.Metadata.Name == name && m.Metadata.Version == version {
 				rootManifest = m
 			}
 		}
