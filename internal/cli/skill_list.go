@@ -29,6 +29,9 @@ func newSkillListCmd() *cobra.Command {
 }
 
 func runSkillList(cmd *cobra.Command, installed bool, target string) error {
+	if !installed && target != "" {
+		return fmt.Errorf("--target is only valid with --installed")
+	}
 	out := cmd.OutOrStdout()
 	if installed {
 		if target != "" && target != "cursor" && target != "claude" {

@@ -93,6 +93,25 @@ func TestListCachedSkills_MultipleEntriesSorted(t *testing.T) {
 	}
 }
 
+func TestListCachedSkills_SkipsCorruptManifest(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	cacheDir := CacheDir("corrupt", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), []byte("not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListCachedSkills()
+	if err != nil {
+		t.Fatalf("ListCachedSkills(): err = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("len(got) = %d, want 0 (dir with corrupt artifact.json skipped)", len(got))
+	}
+}
+
 func TestListCachedSkills_SkipsDirWithoutArtifactJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
@@ -130,6 +149,32 @@ func TestListCachedSkills_SkipsDirNameWithoutAt(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("len(got) = %d, want 0 (dir name without @ skipped)", len(got))
+	}
+}
+
+func TestListCachedSkills_SkipsEmptySkillName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	cacheRoot := filepath.Join(dir, cacheDirName)
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptyNameDir := filepath.Join(cacheRoot, "@1.0.0")
+	if err := os.MkdirAll(emptyNameDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifactManifest(t, emptyNameDir, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha1",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+	got, err := ListCachedSkills()
+	if err != nil {
+		t.Fatalf("ListCachedSkills(): err = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("len(got) = %d, want 0 (dir @1.0.0 has empty skill name, skipped)", len(got))
 	}
 }
 

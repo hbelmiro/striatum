@@ -18,13 +18,13 @@ type CachedSkill struct {
 }
 
 // ListCachedSkills returns all skills in the cache (directories name@version with artifact.json).
-// Returns empty slice and nil error when cache dir is missing or empty.
+// Returns a non-nil empty slice and nil error when cache dir is missing or empty.
 func ListCachedSkills() ([]CachedSkill, error) {
 	cacheRoot := filepath.Join(CacheRoot(), cacheDirName)
 	entries, err := os.ReadDir(cacheRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []CachedSkill{}, nil
 		}
 		return nil, fmt.Errorf("read cache dir %s: %w", cacheRoot, err)
 	}
@@ -39,7 +39,7 @@ func ListCachedSkills() ([]CachedSkill, error) {
 			continue
 		}
 		skillName, version := name[:i], name[i+1:]
-		if version == "" {
+		if strings.TrimSpace(skillName) == "" || version == "" {
 			continue
 		}
 		dirPath := filepath.Join(cacheRoot, name)
@@ -50,11 +50,11 @@ func ListCachedSkills() ([]CachedSkill, error) {
 			}
 			return nil, fmt.Errorf("stat manifest %s: %w", manifestPath, err)
 		}
-		desc := ""
-		if m, err := artifact.Load(manifestPath); err == nil {
-			desc = m.Metadata.Description
+		m, err := artifact.Load(manifestPath)
+		if err != nil {
+			continue
 		}
-		result = append(result, CachedSkill{Name: skillName, Version: version, Description: desc})
+		result = append(result, CachedSkill{Name: skillName, Version: version, Description: m.Metadata.Description})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Name != result[j].Name {
@@ -62,5 +62,8 @@ func ListCachedSkills() ([]CachedSkill, error) {
 		}
 		return result[i].Version < result[j].Version
 	})
+	if result == nil {
+		result = []CachedSkill{}
+	}
 	return result, nil
 }

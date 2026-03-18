@@ -11,6 +11,21 @@ import (
 	"github.com/hbelmiro/striatum/pkg/installer"
 )
 
+func TestSkillList_TargetWithoutInstalled_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "list", "--target", "cursor"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("skill list --target cursor without --installed: expected error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "only valid with --installed") {
+		t.Errorf("error should mention --target only valid with --installed: %v", err)
+	}
+}
+
 func TestSkillList_EmptyCache_ExitsZeroAndShowsNoSkills(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
