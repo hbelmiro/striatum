@@ -16,7 +16,7 @@ func newUninstallCmd() *cobra.Command {
 		Use:     "uninstall",
 		Short:   "Remove a previously installed skill and orphaned dependencies",
 		Long:    "Removes the named skill from the given --target (cursor or claude) and removes any dependencies that are no longer required by other installed skills.",
-		Example: "  striatum uninstall --target cursor my-skill",
+		Example: "  striatum skill uninstall --target cursor my-skill",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]

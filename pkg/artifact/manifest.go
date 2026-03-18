@@ -6,11 +6,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
 const supportedAPIVersion = "striatum.dev/v1alpha1"
-const supportedKindSkill = "Skill"
+
+// supportedKinds lists all artifact kinds accepted by Validate.
+// Add new kinds here as they are introduced.
+var supportedKinds = map[string]bool{
+	"Skill": true,
+}
+
+// IsSupportedKind reports whether kind is a recognized artifact kind.
+func IsSupportedKind(kind string) bool {
+	return supportedKinds[kind]
+}
 
 // Manifest is the root type for artifact.json.
 type Manifest struct {
@@ -65,8 +76,8 @@ func Validate(m *Manifest) error {
 	if m.APIVersion != supportedAPIVersion {
 		return fmt.Errorf("unsupported apiVersion %q, want %s", m.APIVersion, supportedAPIVersion)
 	}
-	if m.Kind != supportedKindSkill {
-		return fmt.Errorf("unsupported kind %q, want %s", m.Kind, supportedKindSkill)
+	if !supportedKinds[m.Kind] {
+		return fmt.Errorf("unsupported kind %q; supported: %s", m.Kind, supportedKindsList())
 	}
 	if strings.TrimSpace(m.Metadata.Name) == "" {
 		return errors.New("metadata.name is required and must be non-empty")
@@ -116,4 +127,13 @@ func ValidateLocal(m *Manifest, baseDir string) error {
 		}
 	}
 	return nil
+}
+
+func supportedKindsList() string {
+	kinds := make([]string, 0, len(supportedKinds))
+	for k := range supportedKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return strings.Join(kinds, ", ")
 }

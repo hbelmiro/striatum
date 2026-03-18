@@ -13,7 +13,7 @@ func TestInit_CreatesArtifactJSON(t *testing.T) {
 	t.Chdir(dir)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"init", "--name", "my-skill"})
+	root.SetArgs([]string{"init", "--name", "my-skill", "--kind", "Skill", "--entrypoint", "SKILL.md"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestInit_WithVersionAndKind(t *testing.T) {
 	t.Chdir(dir)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"init", "--name", "x", "--version", "2.0.0", "--kind", "Skill"})
+	root.SetArgs([]string{"init", "--name", "x", "--version", "2.0.0", "--kind", "Skill", "--entrypoint", "SKILL.md"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -69,10 +69,43 @@ func TestInit_RequiresName(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"init"})
+	root.SetArgs([]string{"init", "--kind", "Skill", "--entrypoint", "SKILL.md"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("init without --name: expected error, got nil")
+	}
+}
+
+func TestInit_RequiresKind(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"init", "--name", "x", "--entrypoint", "SKILL.md"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("init without --kind: expected error, got nil")
+	}
+}
+
+func TestInit_RequiresEntrypoint(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"init", "--name", "x", "--kind", "Skill"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("init without --entrypoint: expected error, got nil")
+	}
+}
+
+func TestInit_RejectsUnsupportedKind(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"init", "--name", "x", "--kind", "Unknown", "--entrypoint", "main.md"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("init with unsupported kind: expected error, got nil")
 	}
 }
 
@@ -81,7 +114,7 @@ func TestInit_CustomEntrypoint(t *testing.T) {
 	t.Chdir(dir)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"init", "--name", "x", "--entrypoint", "OTHER.md"})
+	root.SetArgs([]string{"init", "--name", "x", "--kind", "Skill", "--entrypoint", "OTHER.md"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -107,7 +140,7 @@ func TestInit_OverwritesExistingArtifactJSON(t *testing.T) {
 	t.Chdir(dir)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"init", "--name", "new-skill", "--version", "1.0.0"})
+	root.SetArgs([]string{"init", "--name", "new-skill", "--version", "1.0.0", "--kind", "Skill", "--entrypoint", "SKILL.md"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}

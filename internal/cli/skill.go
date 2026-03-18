@@ -10,5 +10,7 @@ func newSkillCmd() *cobra.Command {
 		Short: "Manage skills",
 	}
 	cmd.AddCommand(newSkillListCmd())
+	cmd.AddCommand(newInstallCmd())
+	cmd.AddCommand(newUninstallCmd())
 	return cmd
 }

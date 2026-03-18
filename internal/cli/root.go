@@ -23,8 +23,6 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newPackCmd())
 	cmd.AddCommand(newPushCmd())
 	cmd.AddCommand(newPullCmd())
-	cmd.AddCommand(newInstallCmd())
-	cmd.AddCommand(newUninstallCmd())
 	cmd.AddCommand(newInspectCmd())
 	cmd.AddCommand(newSkillCmd())
 	return cmd
