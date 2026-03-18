@@ -221,7 +221,12 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 			if idx == 0 {
 				pullTarget = targetObj
 				if pullTarget == nil {
-					return fmt.Errorf("root artifact was loaded from cache but cache is no longer present; re-run with a full reference (e.g. host/repo/name:tag) to pull from registry")
+					// Root was loaded from cache; resolve reference lazily so we can re-pull if cache disappeared.
+					resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+					if err != nil {
+						return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+					}
+					pullTarget, pullRef = resolvedTarget, resolvedRef
 				}
 			} else {
 				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
