@@ -191,7 +191,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 		}
 		rootManifest, err = oci.Inspect(ctx, targetObj, ref)
 		if err != nil {
-			return fmt.Errorf("inspect artifact: %w", err)
+			return fmt.Errorf("read artifact manifest: %w", err)
 		}
 	}
 	isOCI := strings.HasPrefix(reference, "oci:")

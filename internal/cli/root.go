@@ -28,10 +28,16 @@ func NewRootCommand() *cobra.Command {
 	return cmd
 }
 
+// silenceRootPresentation matches Execute: no usage dump on RunE errors, errors returned not printed by Cobra.
+func silenceRootPresentation(cmd *cobra.Command) {
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+}
+
 // Execute runs the root command. It is called from main.
 func Execute() {
 	cmd := NewRootCommand()
-	cmd.SilenceErrors = true
+	silenceRootPresentation(cmd)
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
