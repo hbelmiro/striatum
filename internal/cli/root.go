@@ -18,10 +18,12 @@ func NewRootCommand() *cobra.Command {
 	}
 	cmd.Version = version
 	cmd.SetVersionTemplate("striatum version {{.Version}}\n")
+
+	var manifest string
 	cmd.AddCommand(newInitCmd())
-	cmd.AddCommand(newValidateCmd())
-	cmd.AddCommand(newPackCmd())
-	cmd.AddCommand(newPushCmd())
+	cmd.AddCommand(newValidateCmd(&manifest))
+	cmd.AddCommand(newPackCmd(&manifest))
+	cmd.AddCommand(newPushCmd(&manifest))
 	cmd.AddCommand(newPullCmd())
 	cmd.AddCommand(newInspectCmd())
 	cmd.AddCommand(newSkillCmd())
