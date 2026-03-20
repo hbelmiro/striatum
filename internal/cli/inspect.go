@@ -23,7 +23,7 @@ func newInspectCmd() *cobra.Command {
 			}
 			m, err := oci.Inspect(cmd.Context(), target, ref)
 			if err != nil {
-				return fmt.Errorf("failed to inspect: %w", err)
+				return fmt.Errorf("inspect artifact manifest and metadata: %w", err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Name:         %s\n", m.Metadata.Name)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Version:      %s\n", m.Metadata.Version)

@@ -108,7 +108,8 @@ func TestUnknownSubcommand_ReturnsError(t *testing.T) {
 	}
 }
 
-// operational errors must not be drowned out by a full Cobra usage dump.
+// TestExecute_SilenceUsage_NoUsageDumpOnRunEError asserts that with root
+// silenceRootPresentation, RunE failures do not print a full Cobra usage dump.
 func TestExecute_SilenceUsage_NoUsageDumpOnRunEError(t *testing.T) {
 	root := NewRootCommand()
 	silenceRootPresentation(root)

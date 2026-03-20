@@ -23,17 +23,17 @@ func loadArtifactFromOCI(ctx context.Context, target oras.ReadOnlyTarget, ref st
 
 	manifestBytes, err := content.FetchAll(ctx, target, desc)
 	if err != nil {
-		return zero, nil, nil, fmt.Errorf("fetch manifest: %w", err)
+		return zero, nil, nil, fmt.Errorf("fetch OCI manifest: %w", err)
 	}
 
 	var ociManifest ocispec.Manifest
 	if err := json.Unmarshal(manifestBytes, &ociManifest); err != nil {
-		return zero, nil, nil, fmt.Errorf("parse manifest: %w", err)
+		return zero, nil, nil, fmt.Errorf("parse OCI manifest: %w", err)
 	}
 
 	configBytes, err := content.FetchAll(ctx, target, ociManifest.Config)
 	if err != nil {
-		return zero, nil, nil, fmt.Errorf("fetch config: %w", err)
+		return zero, nil, nil, fmt.Errorf("fetch OCI config blob: %w", err)
 	}
 
 	var m artifact.Manifest
