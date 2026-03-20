@@ -107,3 +107,24 @@ func TestUnknownSubcommand_ReturnsError(t *testing.T) {
 		t.Error("striatum unknown-subcommand: expected error, got nil")
 	}
 }
+
+// operational errors must not be drowned out by a full Cobra usage dump.
+func TestExecute_SilenceUsage_NoUsageDumpOnRunEError(t *testing.T) {
+	root := NewRootCommand()
+	silenceRootPresentation(root)
+	out := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(errBuf)
+	root.SetArgs([]string{"inspect", "missing-colon-so-invalid"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid reference")
+	}
+	combined := out.String() + errBuf.String()
+	for _, needle := range []string{"Usage:", "Flags:", "Examples:"} {
+		if strings.Contains(combined, needle) {
+			t.Errorf("output must not contain Cobra usage marker %q; stdout+stderr:\n%s", needle, combined)
+		}
+	}
+}

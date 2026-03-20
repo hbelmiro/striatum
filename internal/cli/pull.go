@@ -35,7 +35,7 @@ func newPullCmd() *cobra.Command {
 			ctx := cmd.Context()
 			rootManifest, err := oci.Inspect(ctx, target, ref)
 			if err != nil {
-				return fmt.Errorf("inspect artifact: %w", err)
+				return fmt.Errorf("read artifact manifest: %w", err)
 			}
 			if outputDir == "" {
 				outputDir = filepath.Join(wd, rootManifest.Metadata.Name)
