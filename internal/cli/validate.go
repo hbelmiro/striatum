@@ -11,7 +11,7 @@ import (
 
 const defaultManifestName = "artifact.json"
 
-func newValidateCmd(manifest *string) *cobra.Command {
+func newValidateCmd() *cobra.Command {
 	var checkDeps bool
 	var registry string
 	cmd := &cobra.Command{
@@ -20,7 +20,11 @@ func newValidateCmd(manifest *string) *cobra.Command {
 		Long:    "Validates schema and that all spec.files exist (paths are relative to the manifest file's directory). Use --check-deps with --registry to verify dependencies resolve in the registry.",
 		Example: "  striatum validate\n  striatum validate -f path/to/artifact.json\n  striatum validate --check-deps --registry localhost:5000/skills",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(*manifest)
+			manifestFlag, err := cmd.Flags().GetString("manifest")
+			if err != nil {
+				return err
+			}
+			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
 				return err
 			}
@@ -34,7 +38,7 @@ func newValidateCmd(manifest *string) *cobra.Command {
 			if err := artifact.ValidateLocal(m, projectRoot); err != nil {
 				return fmt.Errorf("validate local files: %w", err)
 			}
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "artifact.json is valid.")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Manifest is valid.")
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All files referenced in spec.files exist.")
 
 			if checkDeps {
@@ -66,6 +70,6 @@ func newValidateCmd(manifest *string) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&checkDeps, "check-deps", false, "Verify all dependencies exist in the registry")
 	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required with --check-deps, e.g. localhost:5000/skills)")
-	cmd.Flags().StringVarP(manifest, "manifest", "f", "", manifestFlagUsage)
+	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
 	return cmd
 }

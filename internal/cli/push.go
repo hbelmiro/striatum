@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newPushCmd(manifest *string) *cobra.Command {
+func newPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "push",
 		Short:   "Push the artifact to an OCI registry",
@@ -17,7 +17,11 @@ func newPushCmd(manifest *string) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
-			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(*manifest)
+			manifestFlag, err := cmd.Flags().GetString("manifest")
+			if err != nil {
+				return err
+			}
+			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
 				return err
 			}
@@ -38,6 +42,6 @@ func newPushCmd(manifest *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(manifest, "manifest", "f", "", manifestFlagUsage)
+	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
 	return cmd
 }
