@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
@@ -16,10 +17,14 @@ import (
 func newPullCmd() *cobra.Command {
 	var outputDir string
 	var registry string
+	var noCache bool
 	cmd := &cobra.Command{
-		Use:     "pull",
-		Short:   "Download an artifact and its transitive dependencies",
-		Long:    "Downloads the artifact and all dependencies into the output directory (default ./<root-name>/). Reference can be a registry (host/repo/name:tag) or oci:/path:tag.",
+		Use:   "pull",
+		Short: "Download an artifact and its transitive dependencies",
+		Long: `Downloads the artifact and all dependencies into the output directory (default ./<root-name>/).
+Reference can be a registry (host/repo/name:tag) or oci:/path:tag.
+
+By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or ~/.striatum/cache), the same layout used by "skill install", so "skill list" can show pulled skills. Use --no-cache to write only to the output directory.`,
 		Example: "  striatum pull localhost:5000/skills/my-skill:1.0.0\n  striatum pull -o ./out oci:./.striatum/oci-layout:my-skill:1.0.0",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -49,39 +54,61 @@ func newPullCmd() *cobra.Command {
 				return fmt.Errorf("pull with oci: reference and dependencies requires --registry")
 			}
 
+			defaultRegistry := deriveDefaultRegistry(reference)
+			if isOCI {
+				defaultRegistry = strings.TrimSpace(registry)
+			}
+
+			var resolved []resolver.ResolvedArtifact
 			if len(rootManifest.Dependencies) == 0 {
-				if err := oci.Pull(ctx, target, ref, outputDir); err != nil {
-					return fmt.Errorf("pull artifact: %w", err)
+				resolved = []resolver.ResolvedArtifact{{
+					Name:     rootManifest.Metadata.Name,
+					Version:  rootManifest.Metadata.Version,
+					Registry: defaultRegistry,
+					Manifest: rootManifest,
+				}}
+			} else {
+				fetcher := NewRemoteFetcher()
+				if !noCache {
+					fetcher = NewCacheFirstFetcher(NewRemoteFetcher())
+				}
+				var resolveErr error
+				resolved, resolveErr = resolver.Resolve(ctx, rootManifest, defaultRegistry, fetcher)
+				if resolveErr != nil {
+					return fmt.Errorf("resolving dependencies: %w", resolveErr)
+				}
+			}
+
+			if noCache {
+				for i, r := range resolved {
+					var pullTarget oras.ReadOnlyTarget
+					pullRef := r.Version
+					if i == 0 {
+						pullTarget = target
+						pullRef = ref
+					} else {
+						repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
+						reg, repoErr := oci.NewRepository(repo)
+						if repoErr != nil {
+							return fmt.Errorf("create repository for %s: %w", r.Name, repoErr)
+						}
+						pullTarget = reg
+					}
+					if err := oci.Pull(ctx, pullTarget, pullRef, outputDir); err != nil {
+						return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+					}
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
 				return nil
 			}
 
-			defaultRegistry := deriveDefaultRegistry(reference)
-			if isOCI {
-				defaultRegistry = strings.TrimSpace(registry)
+			if err := ensureArtifactsInCache(ctx, reference, target, ref, resolved); err != nil {
+				return err
 			}
-			fetcher := NewRemoteFetcher()
-			resolved, err := resolver.Resolve(ctx, rootManifest, defaultRegistry, fetcher)
-			if err != nil {
-				return fmt.Errorf("resolving dependencies: %w", err)
-			}
-			for i, r := range resolved {
-				var pullTarget oras.ReadOnlyTarget
-				pullRef := r.Version
-				if i == 0 {
-					pullTarget = target
-					pullRef = ref
-				} else {
-					repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
-					reg, err := oci.NewRepository(repo)
-					if err != nil {
-						return fmt.Errorf("create repository for %s: %w", r.Name, err)
-					}
-					pullTarget = reg
-				}
-				if err := oci.Pull(ctx, pullTarget, pullRef, outputDir); err != nil {
-					return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+			for _, r := range resolved {
+				cacheDir := installer.CacheDir(r.Name, r.Version)
+				if err := installer.InstallToTarget(cacheDir, outputDir, r.Name); err != nil {
+					return fmt.Errorf("copy %s to output: %w", r.Name, err)
 				}
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
@@ -90,6 +117,7 @@ func newPullCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: ./<root-name>/)")
 	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required for oci: reference when root has dependencies)")
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Do not write to the Striatum cache; only populate the output directory")
 	return cmd
 }
 

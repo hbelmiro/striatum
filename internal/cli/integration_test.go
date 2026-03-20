@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
+	"github.com/hbelmiro/striatum/pkg/installer"
 )
 
 const registryImage = "registry:2"
@@ -19,6 +20,7 @@ const registryName = "striatum-registry-test"
 const registryPort = "5000"
 
 func TestIntegration_PushPullViaRegistry(t *testing.T) {
+	t.Setenv("STRIATUM_HOME", t.TempDir())
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not in PATH, skipping integration test")
 	}
@@ -103,5 +105,9 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "integration-test", "SKILL.md")); err != nil {
 		t.Errorf("pulled SKILL.md missing: %v", err)
+	}
+	cacheArtifact := filepath.Join(installer.CacheDir("integration-test", "1.0.0"), "artifact.json")
+	if _, err := os.Stat(cacheArtifact); err != nil {
+		t.Fatalf("expected pull to populate Striatum cache at %s: %v", cacheArtifact, err)
 	}
 }
