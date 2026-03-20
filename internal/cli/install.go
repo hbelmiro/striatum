@@ -371,11 +371,11 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 				pullRef = res.Version
 			}
 			if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
-				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
+				return fmt.Errorf("download OCI artifact: %w", err)
 			}
 			created := filepath.Join(cacheRoot, res.Name)
 			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
-				return fmt.Errorf("cache %s@%s: %w", res.Name, res.Version, err)
+				return fmt.Errorf("finalize cache directory: %w", err)
 			}
 			return nil
 		}

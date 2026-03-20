@@ -70,7 +70,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			} else {
 				fetcher := NewRemoteFetcher()
 				if !noCache {
-					fetcher = NewCacheFirstFetcher(NewRemoteFetcher())
+					fetcher = NewCacheFirstFetcher(fetcher)
 				}
 				var resolveErr error
 				resolved, resolveErr = resolver.Resolve(ctx, rootManifest, defaultRegistry, fetcher)
