@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
@@ -11,33 +9,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultManifestName = "artifact.json"
-
 func newValidateCmd() *cobra.Command {
 	var checkDeps bool
 	var registry string
 	cmd := &cobra.Command{
 		Use:     "validate",
 		Short:   "Validate the local artifact.json",
-		Long:    "Validates schema and that all spec.files exist. Use --check-deps with --registry to verify dependencies resolve in the registry.",
-		Example: "  striatum validate\n  striatum validate --check-deps --registry localhost:5000/skills",
+		Long:    "Validates schema and that all spec.files exist (paths are relative to the manifest file's directory). Use --check-deps with --registry to verify dependencies resolve in the registry.",
+		Example: "  striatum validate\n  striatum validate -f path/to/artifact.json\n  striatum validate --check-deps --registry localhost:5000/skills",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			wd, err := os.Getwd()
+			manifestFlag, err := cmd.Flags().GetString("manifest")
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return err
 			}
-			path := filepath.Join(wd, defaultManifestName)
-			m, err := artifact.Load(path)
+			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
+			if err != nil {
+				return err
+			}
+			m, err := artifact.Load(manifestPath)
 			if err != nil {
 				return fmt.Errorf("load manifest: %w", err)
 			}
 			if err := artifact.Validate(m); err != nil {
 				return fmt.Errorf("invalid manifest: %w", err)
 			}
-			if err := artifact.ValidateLocal(m, wd); err != nil {
+			if err := artifact.ValidateLocal(m, projectRoot); err != nil {
 				return fmt.Errorf("validate local files: %w", err)
 			}
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "artifact.json is valid.")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Manifest is valid.")
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All files referenced in spec.files exist.")
 
 			if checkDeps {
@@ -69,5 +68,6 @@ func newValidateCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&checkDeps, "check-deps", false, "Verify all dependencies exist in the registry")
 	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required with --check-deps, e.g. localhost:5000/skills)")
+	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
 	return cmd
 }

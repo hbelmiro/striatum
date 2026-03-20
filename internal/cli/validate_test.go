@@ -133,3 +133,47 @@ func TestValidate_CheckDepsWithRegistryNoDeps(t *testing.T) {
 		t.Errorf("output %q does not contain All dependencies resolved", got)
 	}
 }
+
+func TestValidate_SuccessWithManifestFlagFromOtherDir(t *testing.T) {
+	projectDir := t.TempDir()
+	cwd := t.TempDir()
+	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
+	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"validate", "--manifest", filepath.Join(projectDir, "artifact.json")})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate --manifest from other dir: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "valid") {
+		t.Errorf("output %q does not contain valid", got)
+	}
+}
+
+func TestValidate_FileMissingWithManifestFromOtherDir(t *testing.T) {
+	projectDir := t.TempDir()
+	cwd := t.TempDir()
+	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md","other.md"]}}`
+	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"validate", "-f", filepath.Join(projectDir, "artifact.json")})
+	if err := root.Execute(); err == nil {
+		t.Fatal("validate -f with missing spec file: expected error, got nil")
+	}
+}

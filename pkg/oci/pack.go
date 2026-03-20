@@ -21,7 +21,8 @@ const annotationTitle = "org.opencontainers.image.title"
 
 // Pack builds an OCI image from the artifact manifest and writes it to the
 // OCI Image Layout at layoutPath. The manifest must be valid; all spec.files
-// must exist under baseDir.
+// paths are read relative to baseDir, the root directory used to resolve those
+// paths (for example, the directory containing artifact.json).
 func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string) error {
 	if m == nil {
 		return errors.New("manifest is nil")
