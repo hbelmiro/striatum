@@ -227,47 +227,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 		}
 	}
 
-	// Ensure each artifact is in cache (pull if missing)
-	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
-	for i, r := range resolved {
-		idx, res := i, r
-		cacheDir := installer.CacheDir(res.Name, res.Version)
-		// outputDir is intentionally unused: oci.Pull writes to cacheRoot/<name>/,
-		// which is then atomically moved into cacheDir.
-		pullFn := func(ctx context.Context, _ string) error {
-			var pullTarget oras.ReadOnlyTarget
-			pullRef := ref
-			if idx == 0 {
-				pullTarget = targetObj
-				if pullTarget == nil {
-					// Root was loaded from cache; resolve reference lazily so we can re-pull if cache disappeared.
-					resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
-					if err != nil {
-						return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
-					}
-					pullTarget, pullRef = resolvedTarget, resolvedRef
-				}
-			} else {
-				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
-				reg, err := oci.NewRepository(repo)
-				if err != nil {
-					return fmt.Errorf("create repository for %s: %w", res.Name, err)
-				}
-				pullTarget = reg
-				pullRef = res.Version
-			}
-			if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
-				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
-			}
-			created := filepath.Join(cacheRoot, res.Name)
-			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
-				return fmt.Errorf("cache %s@%s: %w", res.Name, res.Version, err)
-			}
-			return nil
-		}
-		if err := installer.EnsureInCache(ctx, cacheDir, pullFn); err != nil {
-			return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
-		}
+	if err := ensureArtifactsInCache(ctx, reference, targetObj, ref, resolved); err != nil {
+		return err
 	}
 
 	// Conflict check
@@ -378,6 +339,51 @@ func buildRequired(entries []installer.InstalledEntry) (map[string]string, error
 		}
 	}
 	return required, nil
+}
+
+// ensureArtifactsInCache pulls each resolved artifact into the Striatum cache when missing.
+// rootTarget and rootRef apply to resolved[0]; rootTarget may be nil when the root manifest
+// was loaded from cache and re-pull lazy-resolves via reference.
+func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget oras.ReadOnlyTarget, rootRef string, resolved []resolver.ResolvedArtifact) error {
+	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
+	for i, r := range resolved {
+		idx, res := i, r
+		cacheDir := installer.CacheDir(res.Name, res.Version)
+		pullFn := func(ctx context.Context, _ string) error {
+			var pullTarget oras.ReadOnlyTarget
+			pullRef := rootRef
+			if idx == 0 {
+				pullTarget = rootTarget
+				if pullTarget == nil {
+					resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+					if err != nil {
+						return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+					}
+					pullTarget, pullRef = resolvedTarget, resolvedRef
+				}
+			} else {
+				repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
+				reg, err := oci.NewRepository(repo)
+				if err != nil {
+					return fmt.Errorf("create repository for %s: %w", res.Name, err)
+				}
+				pullTarget = reg
+				pullRef = res.Version
+			}
+			if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
+				return fmt.Errorf("download OCI artifact: %w", err)
+			}
+			created := filepath.Join(cacheRoot, res.Name)
+			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
+				return fmt.Errorf("finalize cache directory: %w", err)
+			}
+			return nil
+		}
+		if err := installer.EnsureInCache(ctx, cacheDir, pullFn); err != nil {
+			return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
+		}
+	}
+	return nil
 }
 
 func pullOneToCache(ctx context.Context, reference, cacheDir, name string) error {
