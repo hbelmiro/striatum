@@ -38,7 +38,7 @@ func newPackCmd() *cobra.Command {
 			if err := oci.Pack(cmd.Context(), m, projectRoot, layoutPath); err != nil {
 				return fmt.Errorf("pack artifact: %w", err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed artifact to %s/\n", layoutPath)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed artifact to %s\n", layoutPath)
 			return nil
 		},
 	}

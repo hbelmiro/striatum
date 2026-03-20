@@ -87,6 +87,31 @@ func TestResolveManifestAndProjectRoot_AbsoluteFile(t *testing.T) {
 	}
 }
 
+func TestResolveManifestAndProjectRoot_ManifestBasenameCaseInsensitive(t *testing.T) {
+	tmp := t.TempDir()
+	// Use non-canonical casing; resolution must still treat this as the manifest file path.
+	manifest := filepath.Join(tmp, "Artifact.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(tmp)
+
+	gotManifest, gotRoot, err := resolveManifestAndProjectRoot("Artifact.json")
+	if err != nil {
+		t.Fatalf("resolveManifestAndProjectRoot: %v", err)
+	}
+	wantManifest, err := filepath.Abs(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotManifest != wantManifest {
+		t.Errorf("manifest path = %q, want %q (must not append second artifact.json)", gotManifest, wantManifest)
+	}
+	if gotRoot != tmp {
+		t.Errorf("project root = %q, want %q", gotRoot, tmp)
+	}
+}
+
 func TestResolveManifestAndProjectRoot_TrimsWhitespace(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmp, "artifact.json"), []byte("{}"), 0o600); err != nil {
@@ -123,6 +148,31 @@ func TestResolveManifestAndProjectRoot_DirectoryContainsDefaultManifest(t *testi
 		t.Errorf("manifest path = %q, want %q", gotManifest, wantManifest)
 	}
 	wantRoot, err := filepath.Abs(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRoot != wantRoot {
+		t.Errorf("project root = %q, want %q", gotRoot, wantRoot)
+	}
+}
+
+func TestResolveManifestAndProjectRoot_NonexistentProjectDir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	missingDir := filepath.Join(tmp, "typo-proj")
+	wantManifest, err := filepath.Abs(filepath.Join(missingDir, defaultManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotManifest, gotRoot, err := resolveManifestAndProjectRoot("typo-proj")
+	if err != nil {
+		t.Fatalf("resolveManifestAndProjectRoot: %v", err)
+	}
+	if gotManifest != wantManifest {
+		t.Errorf("manifest path = %q, want %q (missing dir should still append %s)", gotManifest, wantManifest, defaultManifestName)
+	}
+	wantRoot, err := filepath.Abs(missingDir)
 	if err != nil {
 		t.Fatal(err)
 	}

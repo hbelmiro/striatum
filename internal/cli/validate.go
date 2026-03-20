@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultManifestName = "artifact.json"
-
 func newValidateCmd() *cobra.Command {
 	var checkDeps bool
 	var registry string

@@ -24,6 +24,8 @@ go test -tags=integration ./...
 
 For `validate`, `pack`, and `push`, use `-f` / `--manifest` with a path to `artifact.json` or to the project directory that contains it (defaults to `./artifact.json` in the current working directory). Paths in `spec.files` are always resolved relative to the directory that contains the manifest, not the shell’s current directory.
 
+The flag treats a path as a manifest **file** only when its final component is named `artifact.json` (case-insensitive, e.g. `Artifact.json` on disk). Any other final component is treated as a **project directory** and `artifact.json` is appended—even if that name is missing—so typos get errors pointing at the expected manifest path.
+
 - `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind`, `--entrypoint`)
 - `striatum validate` — validate local artifact and optionally check dependencies
 - `striatum pack` — bundle artifact into a local OCI Image Layout
