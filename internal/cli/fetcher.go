@@ -13,6 +13,34 @@ import (
 	"github.com/hbelmiro/striatum/pkg/resolver"
 )
 
+// loadCachedSkillManifest tries to load a Skill manifest from the Striatum cache for
+// the given name@version. Returns (manifest, nil) on cache hit, (nil, nil) on cache miss
+// or after removing a corrupt entry, or (nil, error) on unrecoverable failures.
+func loadCachedSkillManifest(name, version string) (*artifact.Manifest, error) {
+	cacheDir := installer.CacheDir(name, version)
+	manifestPath := filepath.Join(cacheDir, "artifact.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat cache %s: %w", manifestPath, err)
+	}
+	m, err := artifact.Load(manifestPath)
+	if err != nil {
+		if removeErr := os.Remove(manifestPath); removeErr != nil {
+			return nil, fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, removeErr)
+		}
+		return nil, nil
+	}
+	if m.Metadata.Name != name || m.Metadata.Version != version || m.Kind != "Skill" {
+		if removeErr := os.Remove(manifestPath); removeErr != nil {
+			return nil, fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, removeErr)
+		}
+		return nil, nil
+	}
+	return m, nil
+}
+
 // cacheFirstFetcher tries the local cache (name@version) before delegating to a remote fetcher.
 type cacheFirstFetcher struct {
 	next resolver.ManifestFetcher
@@ -29,30 +57,16 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 	if !ok {
 		return f.next.FetchManifest(ctx, reference)
 	}
-	cacheDir := installer.CacheDir(name, version)
-	manifestPath := filepath.Join(cacheDir, "artifact.json")
-	if _, err := os.Stat(manifestPath); err != nil {
-		if os.IsNotExist(err) {
-			m, err := f.next.FetchManifest(ctx, reference)
-			if err != nil {
-				return nil, fmt.Errorf("%s@%s cache miss; remote fetch failed: %w", name, version, err)
-			}
-			return m, nil
-		}
-		return nil, fmt.Errorf("stat cache %s: %w", manifestPath, err)
-	}
-	m, err := artifact.Load(manifestPath)
+	m, err := loadCachedSkillManifest(name, version)
 	if err != nil {
-		// Cache corruption (unreadable); remove and delegate so resolution can recover via remote.
-		_ = os.Remove(manifestPath)
-		return f.next.FetchManifest(ctx, reference)
+		return nil, err
 	}
-	if m.Metadata.Name != name || m.Metadata.Version != version || m.Kind != "Skill" {
-		// Cache corruption; remove so downstream re-pulls instead of using wrong artifact.
-		if err := os.Remove(manifestPath); err != nil {
-			return nil, fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, err)
-		}
-		return f.next.FetchManifest(ctx, reference)
+	if m != nil {
+		return m, nil
+	}
+	m, err = f.next.FetchManifest(ctx, reference)
+	if err != nil {
+		return nil, fmt.Errorf("%s@%s cache miss; remote fetch failed: %w", name, version, err)
 	}
 	return m, nil
 }

@@ -37,7 +37,7 @@ go test -tags=integration ./...
 | ------- | ------- |
 | `striatum init` | Scaffold `artifact.json` (requires `--name`, `--kind`, `--entrypoint`) |
 | `striatum validate` | Validate artifact (optional `--check-deps`; `-f` / `--manifest` for non-CWD `artifact.json`) |
-| `striatum pack` | Bundle into local OCI Image Layout (`-f` / `--manifest` supported) |
+| `striatum pack` | Bundle into local OCI Image Layout at `<project>/build/` by default; `-o` / `--output` for another path (`-f` / `--manifest` supported) |
 | `striatum push <ref>` | Push to OCI registry (`-f` / `--manifest` supported) |
 | `striatum pull <ref>` | Pull artifact and deps |
 | `striatum inspect <ref>` | Show remote artifact metadata |

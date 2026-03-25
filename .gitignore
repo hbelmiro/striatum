@@ -11,7 +11,12 @@
 coverage.out
 coverage.html
 
-# Local Striatum state
+# Striatum pack output: oci.Pack writes <project>/build/ for any project root (including
+# e.g. packages/foo/build/). Root-only /build would miss those. If you must commit a
+# directory named build/, use git add -f or a negated pattern under that path.
+build/
+
+# User cache / config (pull, skill install)
 .striatum/
 
 # IDE and editor

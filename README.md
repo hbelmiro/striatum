@@ -28,9 +28,9 @@ The flag treats a path as a manifest **file** only when its final component is n
 
 - `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind`, `--entrypoint`)
 - `striatum validate` — validate local artifact and optionally check dependencies
-- `striatum pack` — bundle artifact into a local OCI Image Layout
+- `striatum pack` — bundle artifact into a local OCI Image Layout at `<project>/build/` by default (the manifest’s project directory, not necessarily the shell’s cwd—see `-f` / `--manifest`); optional `-o` / `--output` sets another layout directory (paths relative to the shell’s cwd, like `pull --output`)
 - `striatum push <reference>` — push to an OCI registry
-- `striatum pull <reference>` — download artifact and dependencies to the output directory (default `./<name>/`) and, by default, into the Striatum cache (`STRIATUM_HOME` or `~/.striatum/cache`) so `skill list` can see them; use `--no-cache` for output only
+- `striatum pull <reference>` — download artifact and dependencies to the output directory (default: current working directory; each artifact in `<output>/<name>/`) and, by default, into the Striatum cache (`STRIATUM_HOME` or `~/.striatum/cache`) so `skill list` can see them; use `--no-cache` for output only
 - `striatum inspect <reference>` — show remote artifact metadata
 - `striatum skill install <reference>` — install a skill into Cursor/Claude skills directories
 - `striatum skill uninstall <name>` — remove an installed skill
@@ -45,6 +45,7 @@ striatum validate -f packages/my-skill
 striatum validate --check-deps --registry localhost:5000/skills
 striatum pack
 striatum pack --manifest path/to/artifact.json
+striatum pack -o ./dist
 striatum push localhost:5000/skills/my-skill:1.0.0
 striatum push -f ./my-skill localhost:5000/skills/my-skill:1.0.0
 striatum pull localhost:5000/skills/my-skill:1.0.0
