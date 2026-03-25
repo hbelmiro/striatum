@@ -10,14 +10,12 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
-func TestPack_CreatesLayoutAndPrintsMessage(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-
+func setupTestProject(t *testing.T, dir, name string) {
+	t.Helper()
 	manifest := &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha1",
 		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "cli-pack", Version: "1.0.0"},
+		Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 	data, err := json.Marshal(manifest)
@@ -30,6 +28,12 @@ func TestPack_CreatesLayoutAndPrintsMessage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPack_CreatesLayoutAndPrintsMessage(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	setupTestProject(t, dir, "cli-pack")
 
 	out := &strings.Builder{}
 	root := NewRootCommand()
@@ -55,22 +59,7 @@ func TestPack_WithManifestFlagFromOtherDir(t *testing.T) {
 	projectDir := t.TempDir()
 	cwd := t.TempDir()
 
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
-		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "remote-pack", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	setupTestProject(t, projectDir, "remote-pack")
 	t.Chdir(cwd)
 
 	out := &strings.Builder{}
@@ -102,22 +91,7 @@ func TestPack_CustomOutputAbsoluteLayout(t *testing.T) {
 	customLayout := t.TempDir()
 	t.Chdir(projectDir)
 
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
-		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "custom-out", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	setupTestProject(t, projectDir, "custom-out")
 
 	out := &strings.Builder{}
 	root := NewRootCommand()
@@ -148,22 +122,7 @@ func TestPack_CustomOutputRelativeToCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
-		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "rel-out", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	setupTestProject(t, projectDir, "rel-out")
 
 	out := &strings.Builder{}
 	root := NewRootCommand()
@@ -189,22 +148,7 @@ func TestPack_CustomOutputWithManifestFlagFromOtherDir(t *testing.T) {
 	cwd := t.TempDir()
 	customLayout := t.TempDir()
 
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
-		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "custom-f", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	setupTestProject(t, projectDir, "custom-f")
 	t.Chdir(cwd)
 
 	out := &strings.Builder{}
@@ -233,22 +177,7 @@ func TestPack_CustomOutputRelativeWithManifestFlagFromOtherDir(t *testing.T) {
 	projectDir := t.TempDir()
 	cwd := t.TempDir()
 
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
-		Kind:       "Skill",
-		Metadata:   artifact.Metadata{Name: "rel-f", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	setupTestProject(t, projectDir, "rel-f")
 	t.Chdir(cwd)
 
 	relOut := "out-layout"
