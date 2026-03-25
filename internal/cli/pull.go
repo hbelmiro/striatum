@@ -42,8 +42,14 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			if err != nil {
 				return fmt.Errorf("read artifact manifest: %w", err)
 			}
+			outputDir = strings.TrimSpace(outputDir)
 			if outputDir == "" {
 				outputDir = filepath.Join(wd, rootManifest.Metadata.Name)
+			} else {
+				outputDir = filepath.Clean(outputDir)
+				if !filepath.IsAbs(outputDir) {
+					outputDir = filepath.Join(wd, outputDir)
+				}
 			}
 			if err := os.MkdirAll(outputDir, 0o755); err != nil {
 				return fmt.Errorf("create output dir: %w", err)
