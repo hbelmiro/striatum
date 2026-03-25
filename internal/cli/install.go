@@ -162,23 +162,11 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath, registryFlag
 	var rootManifest *artifact.Manifest
 
 	if name, version, ok := refToCacheCandidate(reference); ok {
-		cacheDir := installer.CacheDir(name, version)
-		manifestPath := filepath.Join(cacheDir, "artifact.json")
-		switch _, statErr := os.Stat(manifestPath); {
-		case statErr == nil:
-			m, err := artifact.Load(manifestPath)
-			if err == nil && m != nil && m.Kind == "Skill" &&
-				m.Metadata.Name == name && m.Metadata.Version == version {
-				rootManifest = m
-			} else {
-				// Load failed or manifest mismatch: remove corrupt entry so EnsureInCache will re-pull.
-				if err := os.Remove(manifestPath); err != nil {
-					return fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, err)
-				}
-			}
-		case !os.IsNotExist(statErr):
-			return fmt.Errorf("stat cache for %s@%s: %w", name, version, statErr)
+		m, err := loadCachedSkillManifest(name, version)
+		if err != nil {
+			return err
 		}
+		rootManifest = m
 	}
 	if rootManifest == nil {
 		if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {

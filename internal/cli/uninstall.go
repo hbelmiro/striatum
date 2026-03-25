@@ -19,7 +19,11 @@ func newUninstallCmd() *cobra.Command {
 		Example: "  striatum skill uninstall --target cursor my-skill",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := normalizeUninstallName(args[0])
+			raw := args[0]
+			name := normalizeUninstallName(raw)
+			if name != strings.TrimSpace(raw) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Note: version in %q ignored; uninstalling %q regardless of version\n", strings.TrimSpace(raw), name)
+			}
 			target = strings.TrimSpace(target)
 			if target == "" {
 				return fmt.Errorf("--target is required (cursor or claude)")

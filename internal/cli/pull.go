@@ -21,8 +21,9 @@ func newPullCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Download an artifact and its transitive dependencies",
-		Long: `Downloads the artifact and all dependencies into the output directory (default ./<root-name>/).
+		Long: `Downloads the artifact and all dependencies into the output directory (default: current working directory).
 Reference can be a registry (host/repo/name:tag) or oci:/path:tag.
+Each artifact is placed in a subdirectory named after the artifact (<output>/<name>/).
 
 By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or ~/.striatum/cache), the same layout used by "skill install", so "skill list" can show pulled skills. Use --no-cache to write only to the output directory.`,
 		Example: "  striatum pull localhost:5000/skills/my-skill:1.0.0\n  striatum pull -o ./out oci:./build:my-skill:1.0.0",
@@ -44,7 +45,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			}
 			outputDir = strings.TrimSpace(outputDir)
 			if outputDir == "" {
-				outputDir = filepath.Join(wd, rootManifest.Metadata.Name)
+				outputDir = wd
 			} else {
 				outputDir = filepath.Clean(outputDir)
 				if !filepath.IsAbs(outputDir) {
@@ -121,7 +122,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: ./<root-name>/)")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: current working directory)")
 	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required for oci: reference when root has dependencies)")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Do not write to the Striatum cache; only populate the output directory")
 	return cmd

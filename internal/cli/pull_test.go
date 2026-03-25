@@ -128,9 +128,53 @@ func TestPull_WhitespaceOnlyOutputFallsBackToDefault(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("pull with whitespace-only output: %v", err)
 	}
-	defaultOut := filepath.Join(cwd, "ws-pull")
-	if _, err := os.Stat(filepath.Join(defaultOut, "ws-pull", "artifact.json")); err != nil {
-		t.Errorf("expected artifact under default dir %s: %v", defaultOut, err)
+	if _, err := os.Stat(filepath.Join(cwd, "ws-pull", "artifact.json")); err != nil {
+		t.Errorf("expected artifact at <cwd>/<name>/artifact.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "ws-pull", "ws-pull", "artifact.json")); err == nil {
+		t.Error("artifact should not be double-nested at <cwd>/<name>/<name>/")
+	}
+}
+
+func TestPull_DefaultOutputUsesCurrentDir(t *testing.T) {
+	t.Setenv("STRIATUM_HOME", t.TempDir())
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha1",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "default-out", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# default"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"pull", "oci:" + layoutDir + ":default-out:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("pull with no --output: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "default-out", "artifact.json")); err != nil {
+		t.Errorf("expected artifact at <cwd>/<name>/artifact.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "default-out", "default-out", "artifact.json")); err == nil {
+		t.Error("artifact should not be double-nested at <cwd>/<name>/<name>/")
 	}
 }
 
