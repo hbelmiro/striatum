@@ -332,11 +332,29 @@ func buildRequired(entries []installer.InstalledEntry) (map[string]string, error
 // ensureArtifactsInCache pulls each resolved artifact into the Striatum cache when missing.
 // rootTarget and rootRef apply to resolved[0]; rootTarget may be nil when the root manifest
 // was loaded from cache and re-pull lazy-resolves via reference.
+// For each artifact, when a remote target is available the OCI manifest digest is resolved
+// and compared with the cached digest; a mismatch triggers a re-pull.
 func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget oras.ReadOnlyTarget, rootRef string, resolved []resolver.ResolvedArtifact) error {
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	for i, r := range resolved {
 		idx, res := i, r
 		cacheDir := installer.CacheDir(res.Name, res.Version)
+
+		// Resolve remote digest when a registry target is available.
+		var remoteDigest string
+		if idx == 0 && rootTarget != nil {
+			if d, err := oci.ResolveDigest(ctx, rootTarget, rootRef); err == nil {
+				remoteDigest = d
+			}
+		} else if idx > 0 && strings.TrimSpace(res.Registry) != "" {
+			repo := strings.TrimSuffix(res.Registry, "/") + "/" + res.Name
+			if reg, err := oci.NewRepository(repo); err == nil {
+				if d, err := oci.ResolveDigest(ctx, reg, res.Version); err == nil {
+					remoteDigest = d
+				}
+			}
+		}
+
 		pullFn := func(ctx context.Context, _ string) error {
 			var pullTarget oras.ReadOnlyTarget
 			pullRef := rootRef
@@ -367,7 +385,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 			}
 			return nil
 		}
-		if err := installer.EnsureInCache(ctx, cacheDir, pullFn); err != nil {
+		if err := installer.EnsureInCache(ctx, cacheDir, remoteDigest, pullFn); err != nil {
 			return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 		}
 	}

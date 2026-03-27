@@ -54,3 +54,14 @@ func Inspect(ctx context.Context, target oras.ReadOnlyTarget, ref string) (*arti
 	}
 	return m, nil
 }
+
+// ResolveDigest resolves the OCI manifest descriptor for the given reference and
+// returns its digest as a string (e.g. "sha256:abc123..."). This is used to compare
+// a remote artifact with a locally cached copy without fetching the full content.
+func ResolveDigest(ctx context.Context, target oras.ReadOnlyTarget, ref string) (string, error) {
+	desc, err := target.Resolve(ctx, ref)
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", ref, err)
+	}
+	return desc.Digest.String(), nil
+}
