@@ -16,7 +16,7 @@ func TestPack_CreatesOCILayout(t *testing.T) {
 
 	// Write artifact.json and one file
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "my-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -57,7 +57,7 @@ func TestPack_MissingFileReturnsError(t *testing.T) {
 	baseDir := t.TempDir()
 	layoutDir := t.TempDir()
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "x", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "missing.md"}},

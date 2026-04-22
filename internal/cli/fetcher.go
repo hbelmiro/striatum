@@ -9,7 +9,8 @@ import (
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
-	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/registry"
+	gitbackend "github.com/hbelmiro/striatum/pkg/registry/git"
 	"github.com/hbelmiro/striatum/pkg/resolver"
 )
 
@@ -43,19 +44,18 @@ func loadCachedSkillManifest(name, version string) (*artifact.Manifest, error) {
 
 // cacheFirstFetcher tries the local cache (name@version) before delegating to a remote fetcher.
 type cacheFirstFetcher struct {
-	next resolver.ManifestFetcher
+	next resolver.DependencyFetcher
 }
 
-// NewCacheFirstFetcher returns a ManifestFetcher that tries cache first, then next.
-func NewCacheFirstFetcher(next resolver.ManifestFetcher) resolver.ManifestFetcher {
+// NewCacheFirstFetcher returns a DependencyFetcher that tries cache first, then next.
+func NewCacheFirstFetcher(next resolver.DependencyFetcher) resolver.DependencyFetcher {
 	return &cacheFirstFetcher{next: next}
 }
 
-// FetchManifest loads from cache when the reference maps to a cached name@version; otherwise delegates.
-func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string) (*artifact.Manifest, error) {
-	name, version, ok := refToCacheCandidate(reference)
+func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, dep artifact.Dependency) (*artifact.Manifest, error) {
+	name, version, ok := depToCacheCandidate(dep)
 	if !ok {
-		return f.next.FetchManifest(ctx, reference)
+		return f.next.FetchManifest(ctx, dep)
 	}
 	m, err := loadCachedSkillManifest(name, version)
 	if err != nil {
@@ -64,34 +64,51 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, reference string)
 	if m != nil {
 		return m, nil
 	}
-	m, err = f.next.FetchManifest(ctx, reference)
+	m, err = f.next.FetchManifest(ctx, dep)
 	if err != nil {
-		return nil, fmt.Errorf("%s@%s cache miss; remote fetch failed: %w", name, version, err)
+		return nil, fmt.Errorf("%s cache miss; remote fetch failed: %w", dep.CanonicalRef(), err)
 	}
 	return m, nil
 }
 
-// remoteFetcher fetches manifests from a remote registry by reference (host/repo/name:version).
-type remoteFetcher struct{}
-
-// NewRemoteFetcher returns a ManifestFetcher that fetches from remote registries.
-func NewRemoteFetcher() resolver.ManifestFetcher {
-	return &remoteFetcher{}
+// depToCacheCandidate derives a cache key (name, version) from a dependency.
+// Only OCI dependencies can be mapped to name@version; Git deps return ok=false.
+func depToCacheCandidate(dep artifact.Dependency) (name, version string, ok bool) {
+	d, isOCI := dep.(*artifact.OCIDependency)
+	if !isOCI {
+		return "", "", false
+	}
+	repo := d.Repository
+	if i := strings.LastIndex(repo, "/"); i >= 0 {
+		repo = repo[i+1:]
+	}
+	name = strings.TrimSpace(repo)
+	version = strings.TrimSpace(d.Tag)
+	return name, version, name != "" && version != ""
 }
 
-// FetchManifest parses reference into repo and tag, then inspects the remote repository.
-func (f *remoteFetcher) FetchManifest(ctx context.Context, reference string) (*artifact.Manifest, error) {
-	i := strings.LastIndex(reference, ":")
-	if i < 0 {
-		return nil, fmt.Errorf("invalid reference %q: expected host/repo/name:version", reference)
+// defaultRouter returns a Router wired with production backends (OCI + Git).
+// A new Router is created per call; this is fine because the backends are stateless.
+func defaultRouter() *registry.Router {
+	return &registry.Router{
+		OCI: &registry.OCIRemoteBackend{},
+		Git: &gitbackend.Backend{},
 	}
-	repo, tag := strings.TrimSpace(reference[:i]), strings.TrimSpace(reference[i+1:])
-	if repo == "" || tag == "" {
-		return nil, fmt.Errorf("invalid reference %q: expected host/repo/name:version", reference)
+}
+
+// remoteFetcher fetches manifests from remote registries via the Router.
+type remoteFetcher struct {
+	router *registry.Router
+}
+
+// NewRemoteFetcher returns a DependencyFetcher that fetches from remote registries.
+func NewRemoteFetcher() resolver.DependencyFetcher {
+	return &remoteFetcher{router: defaultRouter()}
+}
+
+func (f *remoteFetcher) FetchManifest(ctx context.Context, dep artifact.Dependency) (*artifact.Manifest, error) {
+	if dep == nil {
+		return nil, fmt.Errorf("nil dependency")
 	}
-	reg, err := oci.NewRepository(repo)
-	if err != nil {
-		return nil, fmt.Errorf("create repository for %q: %w", reference, err)
-	}
-	return oci.Inspect(ctx, reg, tag)
+	return f.router.Inspect(ctx, dep)
 }

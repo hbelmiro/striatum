@@ -52,7 +52,7 @@ func TestSkillList_OneCachedSkill_OutputContainsNameAndVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArtifactForList(t, cacheDir, &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "foo", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},

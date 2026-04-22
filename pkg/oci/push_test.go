@@ -16,7 +16,7 @@ func TestPush_ToOCILayout_Roundtrip(t *testing.T) {
 	layoutDir := t.TempDir()
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "push-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -52,7 +52,7 @@ func TestPush_ToOCILayout_Roundtrip(t *testing.T) {
 
 func TestPush_InvalidReferenceReturnsError(t *testing.T) {
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "x", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},

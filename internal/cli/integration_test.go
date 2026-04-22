@@ -56,7 +56,7 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 	// Prepare artifact dir and pack
 	baseDir := t.TempDir()
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "integration-test", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -145,7 +145,7 @@ func TestIntegration_PullWithDependencies_DefaultCacheAndNoCache(t *testing.T) {
 
 	depDir := t.TempDir()
 	depManifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "pull-int-dep", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -163,11 +163,15 @@ func TestIntegration_PullWithDependencies_DefaultCacheAndNoCache(t *testing.T) {
 
 	rootDir := t.TempDir()
 	rootManifest := &artifact.Manifest{
-		APIVersion:   "striatum.dev/v1alpha1",
-		Kind:         "Skill",
-		Metadata:     artifact.Metadata{Name: "pull-int-root", Version: "1.0.0"},
-		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-		Dependencies: []artifact.Dependency{{Name: "pull-int-dep", Version: "1.0.0"}},
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "pull-int-root", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{&artifact.OCIDependency{
+			RegistryHost: "localhost:" + registryPort,
+			Repository:   "demo/pull-int-dep",
+			Tag:          "1.0.0",
+		}},
 	}
 	rootData, err := json.Marshal(rootManifest)
 	if err != nil {

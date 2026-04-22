@@ -4,94 +4,88 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
-// ManifestFetcher fetches a manifest by reference (e.g. "host/repo/name:version").
-type ManifestFetcher interface {
-	FetchManifest(ctx context.Context, reference string) (*artifact.Manifest, error)
+// DependencyFetcher fetches a manifest for a given dependency locator.
+type DependencyFetcher interface {
+	FetchManifest(ctx context.Context, dep artifact.Dependency) (*artifact.Manifest, error)
 }
 
 // ResolvedArtifact is a single node in the resolved dependency tree.
 type ResolvedArtifact struct {
-	Name     string
-	Version  string
-	Registry string
-	Manifest *artifact.Manifest
+	Name       string
+	Version    string
+	Dependency artifact.Dependency // nil for root
+	Manifest   *artifact.Manifest
 }
 
 // Resolve walks the dependency tree starting at root, deduplicates by name@version,
 // detects cycles, and returns an ordered list (root first, then deps in discovery order).
-// defaultRegistry is used for the root and for dependencies that do not specify Registry.
-// Empty defaultRegistry with a root that has dependencies returns an error.
-func Resolve(ctx context.Context, root *artifact.Manifest, defaultRegistry string, fetcher ManifestFetcher) ([]ResolvedArtifact, error) {
+//
+// Dedup strategy: each unique CanonicalRef is fetched at most once. Results are
+// also deduped by name@version, so if two different sources (e.g. an OCI registry
+// and a Git repo) both resolve to the same name@version, the first one encountered
+// wins and the second is silently skipped. This "first wins" behavior is intentional
+// to avoid duplicate artifacts in the resolved tree, but callers should be aware that
+// it can mask conflicts if different backends publish different content under the
+// same name@version.
+func Resolve(ctx context.Context, root *artifact.Manifest, fetcher DependencyFetcher) ([]ResolvedArtifact, error) {
 	if root == nil {
 		return nil, errors.New("root manifest is nil")
 	}
 	if fetcher == nil {
 		return nil, errors.New("fetcher is nil")
 	}
-	if len(root.Dependencies) > 0 && strings.TrimSpace(defaultRegistry) == "" {
-		return nil, errors.New("default registry is required when root has dependencies")
-	}
 
-	registry := strings.TrimSuffix(strings.TrimSpace(defaultRegistry), "/")
-	visited := make(map[string]bool) // "name@version" -> true
-	path := make(map[string]bool)    // "name@version" on current path (for cycle detection)
+	fetchedRefs := make(map[string]bool)
+	visitedNV := make(map[string]bool)
+	pathNV := make(map[string]bool)
 	var result []ResolvedArtifact
 
-	var walk func(m *artifact.Manifest, reg string) error
-	walk = func(m *artifact.Manifest, reg string) error {
+	var walk func(m *artifact.Manifest, dep artifact.Dependency) error
+	walk = func(m *artifact.Manifest, dep artifact.Dependency) error {
 		if m == nil {
 			return errors.New("manifest is nil")
 		}
-		key := m.Metadata.Name + "@" + m.Metadata.Version
-		if path[key] {
-			return fmt.Errorf("cycle detected: %s", key)
+		nvKey := m.Metadata.Name + "@" + m.Metadata.Version
+		if pathNV[nvKey] {
+			return fmt.Errorf("cycle detected: %s", nvKey)
 		}
-		if visited[key] {
+		if visitedNV[nvKey] {
 			return nil
 		}
-		visited[key] = true
-		path[key] = true
-		defer func() { delete(path, key) }()
+		visitedNV[nvKey] = true
+		pathNV[nvKey] = true
+		defer func() { delete(pathNV, nvKey) }()
 
 		result = append(result, ResolvedArtifact{
-			Name:     m.Metadata.Name,
-			Version:  m.Metadata.Version,
-			Registry: reg,
-			Manifest: m,
+			Name:       m.Metadata.Name,
+			Version:    m.Metadata.Version,
+			Dependency: dep,
+			Manifest:   m,
 		})
 
 		for _, d := range m.Dependencies {
-			depKey := d.Name + "@" + d.Version
-			if path[depKey] {
-				return fmt.Errorf("cycle detected: %s", depKey)
-			}
-			if visited[depKey] {
+			refKey := d.CanonicalRef()
+			if fetchedRefs[refKey] {
 				continue
 			}
-			depReg := d.Registry
-			if depReg == "" {
-				depReg = reg
-			} else {
-				depReg = strings.TrimSuffix(strings.TrimSpace(depReg), "/")
-			}
-			ref := depReg + "/" + d.Name + ":" + d.Version
-			depManifest, err := fetcher.FetchManifest(ctx, ref)
+			fetchedRefs[refKey] = true
+
+			depManifest, err := fetcher.FetchManifest(ctx, d)
 			if err != nil {
-				return fmt.Errorf("fetch %s: %w", ref, err)
+				return fmt.Errorf("fetch %s: %w", refKey, err)
 			}
-			if err := walk(depManifest, depReg); err != nil {
+			if err := walk(depManifest, d); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	if err := walk(root, registry); err != nil {
+	if err := walk(root, nil); err != nil {
 		return nil, err
 	}
 	return result, nil
