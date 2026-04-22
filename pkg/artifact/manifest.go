@@ -10,10 +10,8 @@ import (
 	"strings"
 )
 
-const supportedAPIVersion = "striatum.dev/v1alpha1"
+const supportedAPIVersion = "striatum.dev/v1alpha2"
 
-// supportedKinds lists all artifact kinds accepted by Validate.
-// Add new kinds here as they are introduced.
 var supportedKinds = map[string]bool{
 	"Skill": true,
 }
@@ -24,12 +22,105 @@ func IsSupportedKind(kind string) bool {
 }
 
 // SupportedKindsList returns a comma-separated list of supported artifact kinds (e.g. "Skill").
-// Useful for error messages when kind validation fails.
 func SupportedKindsList() string {
 	return supportedKindsList()
 }
 
-// Manifest is the root type for artifact.json.
+// Dependency is the interface all dependency types implement.
+// Each backend (OCI, Git, ...) provides a concrete struct.
+type Dependency interface {
+	Source() string
+	CanonicalRef() string
+	Validate() error
+}
+
+var (
+	_ Dependency = (*OCIDependency)(nil)
+	_ Dependency = (*GitDependency)(nil)
+)
+
+// OCIDependency is a dependency hosted in an OCI registry.
+type OCIDependency struct {
+	RegistryHost string `json:"registry"`
+	Repository   string `json:"repository"`
+	Tag          string `json:"tag"`
+}
+
+func (d *OCIDependency) Source() string { return "oci" }
+
+func (d *OCIDependency) CanonicalRef() string {
+	return d.RegistryHost + "/" + d.Repository + ":" + d.Tag
+}
+
+func (d *OCIDependency) Validate() error {
+	if strings.TrimSpace(d.RegistryHost) == "" {
+		return errors.New("oci dependency: registry is required")
+	}
+	if strings.TrimSpace(d.Repository) == "" {
+		return errors.New("oci dependency: repository is required")
+	}
+	if strings.TrimSpace(d.Tag) == "" {
+		return errors.New("oci dependency: tag is required")
+	}
+	return nil
+}
+
+func (d *OCIDependency) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Source     string `json:"source"`
+		Registry   string `json:"registry"`
+		Repository string `json:"repository"`
+		Tag        string `json:"tag"`
+	}{
+		Source:     "oci",
+		Registry:   d.RegistryHost,
+		Repository: d.Repository,
+		Tag:        d.Tag,
+	})
+}
+
+// GitDependency is a dependency hosted in a Git repository.
+type GitDependency struct {
+	URL  string `json:"url"`
+	Ref  string `json:"ref"`
+	Path string `json:"path,omitempty"`
+}
+
+func (d *GitDependency) Source() string { return "git" }
+
+func (d *GitDependency) CanonicalRef() string {
+	s := "git:" + d.URL + "@" + d.Ref
+	if d.Path != "" {
+		s += "#" + d.Path
+	}
+	return s
+}
+
+func (d *GitDependency) Validate() error {
+	if strings.TrimSpace(d.URL) == "" {
+		return errors.New("git dependency: url is required")
+	}
+	if strings.TrimSpace(d.Ref) == "" {
+		return errors.New("git dependency: ref is required")
+	}
+	return nil
+}
+
+func (d *GitDependency) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		URL    string `json:"url"`
+		Ref    string `json:"ref"`
+		Path   string `json:"path,omitempty"`
+	}{
+		Source: "git",
+		URL:    d.URL,
+		Ref:    d.Ref,
+		Path:   d.Path,
+	})
+}
+
+// Manifest is the root type for artifact.json (v1alpha2).
 type Manifest struct {
 	APIVersion   string       `json:"apiVersion"`
 	Kind         string       `json:"kind"`
@@ -54,11 +145,82 @@ type Spec struct {
 	Files      []string `json:"files"`
 }
 
-// Dependency describes a dependency artifact.
-type Dependency struct {
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	Registry string `json:"registry,omitempty"`
+func (m *Manifest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		APIVersion   string            `json:"apiVersion"`
+		Kind         string            `json:"kind"`
+		Metadata     Metadata          `json:"metadata"`
+		Spec         Spec              `json:"spec"`
+		Dependencies []json.RawMessage `json:"dependencies"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.APIVersion = raw.APIVersion
+	m.Kind = raw.Kind
+	m.Metadata = raw.Metadata
+	m.Spec = raw.Spec
+	m.Dependencies = nil
+
+	for i, rd := range raw.Dependencies {
+		dep, err := unmarshalDependency(rd, i)
+		if err != nil {
+			return err
+		}
+		m.Dependencies = append(m.Dependencies, dep)
+	}
+	return nil
+}
+
+func unmarshalDependency(data json.RawMessage, index int) (Dependency, error) {
+	var probe struct {
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("dependencies[%d]: %w", index, err)
+	}
+	switch probe.Source {
+	case "oci":
+		var d OCIDependency
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, fmt.Errorf("dependencies[%d]: %w", index, err)
+		}
+		return &d, nil
+	case "git":
+		var d GitDependency
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, fmt.Errorf("dependencies[%d]: %w", index, err)
+		}
+		return &d, nil
+	case "":
+		return nil, fmt.Errorf("dependencies[%d]: source is required", index)
+	default:
+		return nil, fmt.Errorf("dependencies[%d]: unsupported source %q", index, probe.Source)
+	}
+}
+
+func (m *Manifest) MarshalJSON() ([]byte, error) {
+	var rawDeps []json.RawMessage
+	for _, d := range m.Dependencies {
+		b, err := json.Marshal(d)
+		if err != nil {
+			return nil, err
+		}
+		rawDeps = append(rawDeps, b)
+	}
+	return json.Marshal(struct {
+		APIVersion   string            `json:"apiVersion"`
+		Kind         string            `json:"kind"`
+		Metadata     Metadata          `json:"metadata"`
+		Spec         Spec              `json:"spec"`
+		Dependencies []json.RawMessage `json:"dependencies,omitempty"`
+	}{
+		APIVersion:   m.APIVersion,
+		Kind:         m.Kind,
+		Metadata:     m.Metadata,
+		Spec:         m.Spec,
+		Dependencies: rawDeps,
+	})
 }
 
 // Load reads and parses an artifact.json file.
@@ -105,11 +267,8 @@ func Validate(m *Manifest) error {
 		return fmt.Errorf("spec.entrypoint %q must be listed in spec.files", m.Spec.Entrypoint)
 	}
 	for i, d := range m.Dependencies {
-		if strings.TrimSpace(d.Name) == "" {
-			return fmt.Errorf("dependencies[%d].name is required and must be non-empty", i)
-		}
-		if strings.TrimSpace(d.Version) == "" {
-			return fmt.Errorf("dependencies[%d].version is required and must be non-empty", i)
+		if err := d.Validate(); err != nil {
+			return fmt.Errorf("dependencies[%d]: %w", i, err)
 		}
 	}
 	return nil

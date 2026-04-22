@@ -36,7 +36,7 @@ func newInspectCmd() *cobra.Command {
 			if len(m.Dependencies) > 0 {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Dependencies:")
 				for _, d := range m.Dependencies {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  - %s@%s\n", d.Name, d.Version)
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  - %s [%s]\n", d.CanonicalRef(), d.Source())
 				}
 			}
 			return nil

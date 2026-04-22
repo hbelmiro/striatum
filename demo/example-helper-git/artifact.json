@@ -2,7 +2,7 @@
   "apiVersion": "striatum.dev/v1alpha2",
   "kind": "Skill",
   "metadata": {
-    "name": "example-helper-b",
+    "name": "striatum-demo-git-skill",
     "version": "1.0.0"
   },
   "spec": {

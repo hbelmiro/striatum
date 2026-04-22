@@ -20,7 +20,7 @@ func TestPull_FromOCILayoutSucceeds(t *testing.T) {
 	outDir := t.TempDir()
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "cli-pull", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -58,16 +58,20 @@ func TestPull_FromOCILayoutSucceeds(t *testing.T) {
 	}
 }
 
-func TestPull_OCILayoutWithDepsRequiresRegistry(t *testing.T) {
+func TestPull_OCILayoutWithDeps_TriesResolve(t *testing.T) {
 	baseDir := t.TempDir()
 	layoutDir := t.TempDir()
 
 	manifest := &artifact.Manifest{
-		APIVersion:   "striatum.dev/v1alpha1",
-		Kind:         "Skill",
-		Metadata:     artifact.Metadata{Name: "root", Version: "1.0.0"},
-		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-		Dependencies: []artifact.Dependency{{Name: "dep", Version: "1.0.0"}},
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "root", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{&artifact.OCIDependency{
+			RegistryHost: "localhost:9999",
+			Repository:   "skills/dep",
+			Tag:          "1.0.0",
+		}},
 	}
 	data, err := json.Marshal(manifest)
 	if err != nil {
@@ -87,10 +91,7 @@ func TestPull_OCILayoutWithDepsRequiresRegistry(t *testing.T) {
 	root.SetArgs([]string{"pull", "oci:" + layoutDir + ":root:1.0.0"})
 	err = root.Execute()
 	if err == nil {
-		t.Error("pull oci: with deps and no --registry: expected error, got nil")
-	}
-	if err != nil && !strings.Contains(err.Error(), "registry") {
-		t.Errorf("error should mention registry: %v", err)
+		t.Fatal("pull oci: with unreachable dep source: expected error, got nil")
 	}
 }
 
@@ -102,7 +103,7 @@ func TestPull_WhitespaceOnlyOutputFallsBackToDefault(t *testing.T) {
 	t.Chdir(cwd)
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "ws-pull", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -144,7 +145,7 @@ func TestPull_DefaultOutputUsesCurrentDir(t *testing.T) {
 	t.Chdir(cwd)
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "default-out", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -178,7 +179,46 @@ func TestPull_DefaultOutputUsesCurrentDir(t *testing.T) {
 	}
 }
 
-// TestPull_NoCache_OutputOnly specifies --no-cache must not populate ~/.striatum/cache (STRIATUM_HOME).
+func TestPull_NoCache_WithDeps_TriesPullDependency(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "root-nc", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{&artifact.OCIDependency{
+			RegistryHost: "localhost:9999",
+			Repository:   "skills/dep",
+			Tag:          "1.0.0",
+		}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"pull", "--no-cache", "oci:" + layoutDir + ":root-nc:1.0.0"})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("pull --no-cache with unreachable dep: expected error")
+	}
+	if !strings.Contains(err.Error(), "resolving dependencies") {
+		t.Errorf("error should mention resolving dependencies: %v", err)
+	}
+}
+
 func TestPull_NoCache_OutputOnly(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", t.TempDir())
 	baseDir := t.TempDir()
@@ -186,7 +226,7 @@ func TestPull_NoCache_OutputOnly(t *testing.T) {
 	outDir := t.TempDir()
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "no-cache-pull", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},

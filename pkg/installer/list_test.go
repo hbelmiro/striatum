@@ -46,7 +46,7 @@ func TestListCachedSkills_OneValidEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArtifactManifest(t, cacheDir, &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "foo", Version: "1.0.0", Description: "A test skill"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -75,7 +75,7 @@ func TestListCachedSkills_MultipleEntriesSorted(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeArtifactManifest(t, cacheDir, &artifact.Manifest{
-			APIVersion: "striatum.dev/v1alpha1",
+			APIVersion: "striatum.dev/v1alpha2",
 			Kind:       "Skill",
 			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -102,7 +102,7 @@ func TestListCachedSkills_SkipsNonSkillKind(t *testing.T) {
 	}
 	// Valid manifest but kind is not Skill — should be omitted from list
 	writeArtifactManifest(t, cacheDir, &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "VectorIndex",
 		Metadata:   artifact.Metadata{Name: "other-type", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "index.json", Files: []string{"index.json"}},
@@ -187,7 +187,7 @@ func TestListCachedSkills_SkipsEmptySkillName(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArtifactManifest(t, emptyNameDir, &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -214,7 +214,7 @@ func TestListCachedSkills_NameWithMultipleAt_SplitOnLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArtifactManifest(t, multiAtDir, &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "a@b", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},

@@ -37,11 +37,10 @@ func TestValidate_InvalidSchema(t *testing.T) {
 func TestValidate_FileMissing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "artifact.json")
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md","other.md"]}}`
+	valid := `{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md","other.md"]}}`
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Create only SKILL.md, not other.md
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +57,7 @@ func TestValidate_FileMissing(t *testing.T) {
 func TestValidate_Success(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "artifact.json")
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
+	valid := `{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -83,33 +82,10 @@ func TestValidate_Success(t *testing.T) {
 	}
 }
 
-func TestValidate_CheckDepsWithoutRegistry(t *testing.T) {
+func TestValidate_CheckDepsNoDeps_Succeeds(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "artifact.json")
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
-	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(dir)
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"validate", "--check-deps"})
-	err := root.Execute()
-	if err == nil {
-		t.Error("validate --check-deps without --registry: expected error, got nil")
-	}
-	if err != nil && !strings.Contains(err.Error(), "registry") {
-		t.Errorf("error should mention registry: %v", err)
-	}
-}
-
-func TestValidate_CheckDepsWithRegistryNoDeps(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "artifact.json")
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
+	valid := `{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -121,9 +97,9 @@ func TestValidate_CheckDepsWithRegistryNoDeps(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"validate", "--check-deps", "--registry", "localhost:5000/skills"})
+	root.SetArgs([]string{"validate", "--check-deps"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("validate --check-deps --registry: %v", err)
+		t.Fatalf("validate --check-deps: %v", err)
 	}
 	got := out.String()
 	if !strings.Contains(got, "Resolving dependency tree") {
@@ -134,10 +110,40 @@ func TestValidate_CheckDepsWithRegistryNoDeps(t *testing.T) {
 	}
 }
 
+func TestValidate_CheckDepsWithDeps_FailsOnUnreachable(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "x", "version": "1.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]},
+  "dependencies": [
+    {"source": "oci", "registry": "localhost:9999", "repository": "skills/dep", "tag": "1.0.0"}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"validate", "--check-deps"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("validate --check-deps with unreachable dep: expected error")
+	}
+	if !strings.Contains(err.Error(), "resolving dependencies") {
+		t.Errorf("error should mention resolving dependencies: %v", err)
+	}
+}
+
 func TestValidate_SuccessWithManifestFlagFromOtherDir(t *testing.T) {
 	projectDir := t.TempDir()
 	cwd := t.TempDir()
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
+	valid := `{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`
 	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +168,7 @@ func TestValidate_SuccessWithManifestFlagFromOtherDir(t *testing.T) {
 func TestValidate_FileMissingWithManifestFromOtherDir(t *testing.T) {
 	projectDir := t.TempDir()
 	cwd := t.TempDir()
-	valid := `{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md","other.md"]}}`
+	valid := `{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"x","version":"1.0.0"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md","other.md"]}}`
 	if err := os.WriteFile(filepath.Join(projectDir, "artifact.json"), []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
 	}

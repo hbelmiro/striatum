@@ -43,7 +43,7 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("get working directory: %w", err)
 			}
 			m := &artifact.Manifest{
-				APIVersion: "striatum.dev/v1alpha1",
+				APIVersion: "striatum.dev/v1alpha2",
 				Kind:       kind,
 				Metadata:   artifact.Metadata{Name: name, Version: version},
 				Spec:       artifact.Spec{Entrypoint: entrypoint, Files: []string{entrypoint}},

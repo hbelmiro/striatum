@@ -134,7 +134,7 @@ func TestInit_CustomEntrypoint(t *testing.T) {
 func TestInit_OverwritesExistingArtifactJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "artifact.json")
-	if err := os.WriteFile(path, []byte(`{"apiVersion":"striatum.dev/v1alpha1","kind":"Skill","metadata":{"name":"old","version":"0.0.1"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"apiVersion":"striatum.dev/v1alpha2","kind":"Skill","metadata":{"name":"old","version":"0.0.1"},"spec":{"entrypoint":"SKILL.md","files":["SKILL.md"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)

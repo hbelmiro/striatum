@@ -3,34 +3,41 @@ package resolver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
-// mockFetcher records FetchManifest calls and returns manifests from a map.
 type mockFetcher struct {
-	manifests map[string]*artifact.Manifest
+	manifests map[string]*artifact.Manifest // keyed by CanonicalRef()
 	calls     []string
 	err       error
 }
 
-func (m *mockFetcher) FetchManifest(ctx context.Context, reference string) (*artifact.Manifest, error) {
-	m.calls = append(m.calls, reference)
+func (m *mockFetcher) FetchManifest(_ context.Context, dep artifact.Dependency) (*artifact.Manifest, error) {
+	ref := dep.CanonicalRef()
+	m.calls = append(m.calls, ref)
 	if m.err != nil {
 		return nil, m.err
 	}
-	if m.manifests != nil {
-		if manifest, ok := m.manifests[reference]; ok {
-			return manifest, nil
-		}
+	if mf, ok := m.manifests[ref]; ok {
+		return mf, nil
 	}
-	return nil, errors.New("not found")
+	return nil, errors.New("not found: " + ref)
 }
 
-func manifestWithDeps(name, version, registry string, deps []artifact.Dependency) *artifact.Manifest {
+func ociDep(host, repo, tag string) artifact.Dependency {
+	return &artifact.OCIDependency{RegistryHost: host, Repository: repo, Tag: tag}
+}
+
+func gitDep(url, ref, path string) artifact.Dependency {
+	return &artifact.GitDependency{URL: url, Ref: ref, Path: path}
+}
+
+func mf(name, version string, deps ...artifact.Dependency) *artifact.Manifest {
 	return &artifact.Manifest{
-		APIVersion:   "striatum.dev/v1alpha1",
+		APIVersion:   "striatum.dev/v1alpha2",
 		Kind:         "Skill",
 		Metadata:     artifact.Metadata{Name: name, Version: version},
 		Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -38,104 +45,162 @@ func manifestWithDeps(name, version, registry string, deps []artifact.Dependency
 	}
 }
 
+func names(resolved []ResolvedArtifact) string {
+	n := make([]string, len(resolved))
+	for i, r := range resolved {
+		n[i] = r.Name
+	}
+	return strings.Join(n, ",")
+}
+
+// --- OCI-only trees ---
+
 func TestResolve_NoDependencies(t *testing.T) {
-	root := manifestWithDeps("root", "1.0.0", "", nil)
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{}}
-	got, err := Resolve(context.Background(), root, "localhost:5000/skills", fetcher)
+	got, err := Resolve(context.Background(), mf("root", "1.0.0"), &mockFetcher{})
 	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("len(got) = %d, want 1", len(got))
+	if len(got) != 1 || got[0].Name != "root" {
+		t.Errorf("got = %s", names(got))
 	}
-	if got[0].Name != "root" || got[0].Version != "1.0.0" || got[0].Registry != "localhost:5000/skills" {
-		t.Errorf("got[0] = %+v", got[0])
-	}
-	if len(fetcher.calls) != 0 {
-		t.Errorf("fetcher called %d times, want 0", len(fetcher.calls))
+	if got[0].Dependency != nil {
+		t.Error("root Dependency should be nil")
 	}
 }
 
-func TestResolve_OneDirectDependency(t *testing.T) {
-	dep := manifestWithDeps("dep", "1.0.0", "", nil)
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "dep", Version: "1.0.0"}})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/dep:1.0.0": dep,
+func TestResolve_OneOCIDep(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/dep:1.0.0": mf("dep", "1.0.0"),
 	}}
-	got, err := Resolve(context.Background(), root, "localhost:5000/skills", fetcher)
+	got, err := Resolve(context.Background(), mf("root", "1.0.0", ociDep("reg", "skills/dep", "1.0.0")), f)
 	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("len(got) = %d, want 2", len(got))
+	if names(got) != "root,dep" {
+		t.Errorf("got = %s", names(got))
 	}
-	if got[0].Name != "root" || got[1].Name != "dep" {
-		t.Errorf("order: got[0].Name=%s got[1].Name=%s", got[0].Name, got[1].Name)
-	}
-	if len(fetcher.calls) != 1 || fetcher.calls[0] != "localhost:5000/skills/dep:1.0.0" {
-		t.Errorf("fetcher.calls = %v", fetcher.calls)
+	if got[1].Dependency == nil || got[1].Dependency.Source() != "oci" {
+		t.Error("dep[1] should carry OCI dependency")
 	}
 }
 
-func TestResolve_Transitive(t *testing.T) {
-	c := manifestWithDeps("c", "1.0.0", "", nil)
-	b := manifestWithDeps("b", "1.0.0", "", []artifact.Dependency{{Name: "c", Version: "1.0.0"}})
-	a := manifestWithDeps("a", "1.0.0", "", []artifact.Dependency{{Name: "b", Version: "1.0.0"}})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/b:1.0.0": b,
-		"localhost:5000/skills/c:1.0.0": c,
+func TestResolve_TransitiveOCI(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/b:1.0.0": mf("b", "1.0.0", ociDep("reg", "skills/c", "1.0.0")),
+		"reg/skills/c:1.0.0": mf("c", "1.0.0"),
 	}}
-	got, err := Resolve(context.Background(), a, "localhost:5000/skills", fetcher)
+	got, err := Resolve(context.Background(), mf("a", "1.0.0", ociDep("reg", "skills/b", "1.0.0")), f)
 	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("len(got) = %d, want 3", len(got))
-	}
-	names := []string{got[0].Name, got[1].Name, got[2].Name}
-	if names[0] != "a" || names[1] != "b" || names[2] != "c" {
-		t.Errorf("order = %v", names)
-	}
-	if len(fetcher.calls) != 2 {
-		t.Errorf("fetcher.calls = %v (want 2 calls for b and c)", fetcher.calls)
+	if names(got) != "a,b,c" {
+		t.Errorf("order = %s", names(got))
 	}
 }
+
+// --- Git-only trees ---
+
+func TestResolve_OneGitDep(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"git:https://example.com/r.git@v2.0.0": mf("git-dep", "2.0.0"),
+	}}
+	got, err := Resolve(context.Background(), mf("root", "1.0.0", gitDep("https://example.com/r.git", "v2.0.0", "")), f)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if names(got) != "root,git-dep" {
+		t.Errorf("got = %s", names(got))
+	}
+	if got[1].Dependency.Source() != "git" {
+		t.Error("dep should be git")
+	}
+}
+
+func TestResolve_TransitiveGit(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"git:https://gh.com/a.git@v1": mf("mid", "1.0.0",
+			gitDep("https://gh.com/b.git", "v1", "")),
+		"git:https://gh.com/b.git@v1": mf("leaf", "1.0.0"),
+	}}
+	got, err := Resolve(context.Background(), mf("root", "1.0.0",
+		gitDep("https://gh.com/a.git", "v1", "")), f)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if names(got) != "root,mid,leaf" {
+		t.Errorf("got = %s", names(got))
+	}
+}
+
+// --- Mixed-backend trees ---
+
+func TestResolve_MixedOCIAndGit(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/oci-child:1.0.0":           mf("oci-child", "1.0.0"),
+		"git:https://example.com/r.git@v1.0.0": mf("git-child", "1.0.0"),
+	}}
+	got, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/oci-child", "1.0.0"),
+		gitDep("https://example.com/r.git", "v1.0.0", ""),
+	), f)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if names(got) != "root,oci-child,git-child" {
+		t.Errorf("got = %s", names(got))
+	}
+}
+
+func TestResolve_MixedTransitive(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"git:https://gh.com/r.git@v1": mf("mid", "1.0.0",
+			ociDep("reg", "skills/leaf", "1.0.0")),
+		"reg/skills/leaf:1.0.0": mf("leaf", "1.0.0"),
+	}}
+	got, err := Resolve(context.Background(), mf("root", "1.0.0",
+		gitDep("https://gh.com/r.git", "v1", "")), f)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if names(got) != "root,mid,leaf" {
+		t.Errorf("got = %s", names(got))
+	}
+}
+
+// --- Dedup and cycles ---
 
 func TestResolve_Cycle(t *testing.T) {
-	a := manifestWithDeps("a", "1.0.0", "", []artifact.Dependency{{Name: "b", Version: "1.0.0"}})
-	b := manifestWithDeps("b", "1.0.0", "", []artifact.Dependency{{Name: "a", Version: "1.0.0"}})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/b:1.0.0": b,
-		"localhost:5000/skills/a:1.0.0": a,
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/b:1.0.0": mf("b", "1.0.0", ociDep("reg", "skills/a", "1.0.0")),
+		"reg/skills/a:1.0.0": mf("a", "1.0.0", ociDep("reg", "skills/b", "1.0.0")),
 	}}
-	_, err := Resolve(context.Background(), a, "localhost:5000/skills", fetcher)
+	_, err := Resolve(context.Background(), mf("a", "1.0.0", ociDep("reg", "skills/b", "1.0.0")), f)
 	if err == nil {
-		t.Error("Resolve() err = nil, want cycle error")
+		t.Fatal("want cycle error")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("error %q should mention cycle", err.Error())
 	}
 }
 
 func TestResolve_Dedupe(t *testing.T) {
-	c := manifestWithDeps("c", "1.0.0", "", nil)
-	b := manifestWithDeps("b", "1.0.0", "", []artifact.Dependency{{Name: "c", Version: "1.0.0"}})
-	a := manifestWithDeps("a", "1.0.0", "", []artifact.Dependency{
-		{Name: "b", Version: "1.0.0"},
-		{Name: "c", Version: "1.0.0"},
-	})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/b:1.0.0": b,
-		"localhost:5000/skills/c:1.0.0": c,
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/b:1.0.0": mf("b", "1.0.0", ociDep("reg", "skills/c", "1.0.0")),
+		"reg/skills/c:1.0.0": mf("c", "1.0.0"),
 	}}
-	got, err := Resolve(context.Background(), a, "localhost:5000/skills", fetcher)
+	got, err := Resolve(context.Background(), mf("a", "1.0.0",
+		ociDep("reg", "skills/b", "1.0.0"),
+		ociDep("reg", "skills/c", "1.0.0"),
+	), f)
 	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("len(got) = %d, want 3 (a, b, c)", len(got))
+		t.Fatalf("len = %d, want 3 (a,b,c)", len(got))
 	}
-	// c should be fetched once (via b or via a)
 	cCalls := 0
-	for _, ref := range fetcher.calls {
-		if ref == "localhost:5000/skills/c:1.0.0" {
+	for _, ref := range f.calls {
+		if ref == "reg/skills/c:1.0.0" {
 			cCalls++
 		}
 	}
@@ -144,83 +209,70 @@ func TestResolve_Dedupe(t *testing.T) {
 	}
 }
 
-func TestResolve_DefaultRegistry(t *testing.T) {
-	dep := manifestWithDeps("dep", "1.0.0", "", nil)
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "dep", Version: "1.0.0"}}) // no registry on dep
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/dep:1.0.0": dep,
+func TestResolve_DedupeAcrossBackends(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/shared:1.0.0":              mf("shared", "1.0.0"),
+		"git:https://gh.com/shared.git@v1.0.0": mf("shared", "1.0.0"),
 	}}
-	_, err := Resolve(context.Background(), root, "localhost:5000/skills", fetcher)
+	got, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/shared", "1.0.0"),
+		gitDep("https://gh.com/shared.git", "v1.0.0", ""),
+	), f)
 	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
-	if len(fetcher.calls) != 1 || fetcher.calls[0] != "localhost:5000/skills/dep:1.0.0" {
-		t.Errorf("fetcher.calls = %v", fetcher.calls)
-	}
-}
-
-func TestResolve_DepWithExplicitRegistry(t *testing.T) {
-	dep := manifestWithDeps("dep", "1.0.0", "", nil)
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{
-		{Name: "dep", Version: "1.0.0", Registry: "other:5000/repo"},
-	})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"other:5000/repo/dep:1.0.0": dep,
-	}}
-	_, err := Resolve(context.Background(), root, "localhost:5000/skills", fetcher)
-	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
-	}
-	if len(fetcher.calls) != 1 || fetcher.calls[0] != "other:5000/repo/dep:1.0.0" {
-		t.Errorf("fetcher.calls = %v", fetcher.calls)
+	// Same name@version from two backends: first wins, second is deduped by name@version.
+	if names(got) != "root,shared" {
+		t.Errorf("got = %s, want root,shared", names(got))
 	}
 }
 
-func TestResolve_FetcherError(t *testing.T) {
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "missing", Version: "1.0.0"}})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{}}
-	_, err := Resolve(context.Background(), root, "localhost:5000/skills", fetcher)
-	if err == nil {
-		t.Error("Resolve() err = nil, want error")
-	}
-}
-
-func TestResolve_EmptyDefaultRegistryWithDeps(t *testing.T) {
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "dep", Version: "1.0.0"}})
-	fetcher := &mockFetcher{}
-	_, err := Resolve(context.Background(), root, "", fetcher)
-	if err == nil {
-		t.Error("Resolve() with empty defaultRegistry and deps: err = nil, want error")
-	}
-}
+// --- Error cases ---
 
 func TestResolve_NilRoot(t *testing.T) {
-	fetcher := &mockFetcher{}
-	_, err := Resolve(context.Background(), nil, "localhost:5000/skills", fetcher)
+	_, err := Resolve(context.Background(), nil, &mockFetcher{})
 	if err == nil {
-		t.Error("Resolve(nil root) err = nil, want error")
+		t.Error("want error for nil root")
 	}
 }
 
 func TestResolve_NilFetcher(t *testing.T) {
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "dep", Version: "1.0.0"}})
-	_, err := Resolve(context.Background(), root, "localhost:5000/skills", nil)
+	_, err := Resolve(context.Background(), mf("x", "1"), nil)
 	if err == nil {
-		t.Error("Resolve(nil fetcher) err = nil, want error")
+		t.Error("want error for nil fetcher")
 	}
 }
 
-func TestResolve_TrimTrailingSlash(t *testing.T) {
-	dep := manifestWithDeps("dep", "1.0.0", "", nil)
-	root := manifestWithDeps("root", "1.0.0", "", []artifact.Dependency{{Name: "dep", Version: "1.0.0"}})
-	fetcher := &mockFetcher{manifests: map[string]*artifact.Manifest{
-		"localhost:5000/skills/dep:1.0.0": dep,
-	}}
-	_, err := Resolve(context.Background(), root, "localhost:5000/skills/", fetcher)
-	if err != nil {
-		t.Fatalf("Resolve() err = %v", err)
+func TestResolve_FetchError(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/missing", "1.0.0")), f)
+	if err == nil {
+		t.Error("want error for missing dep")
 	}
-	if len(fetcher.calls) != 1 || fetcher.calls[0] != "localhost:5000/skills/dep:1.0.0" {
-		t.Errorf("fetcher.calls = %v (trailing slash in registry should be trimmed)", fetcher.calls)
+}
+
+func TestResolve_FetcherReturnsNilManifest(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{}}
+	f.manifests["reg/skills/dep:1.0.0"] = nil
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/dep", "1.0.0")), f)
+	if err == nil {
+		t.Error("want error when fetcher returns nil manifest")
+	}
+	if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("error should mention nil: %v", err)
+	}
+}
+
+func TestResolve_FetcherReturnsError(t *testing.T) {
+	f := &mockFetcher{err: errors.New("network error")}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/dep", "1.0.0")), f)
+	if err == nil {
+		t.Error("want error")
+	}
+	if !strings.Contains(err.Error(), "network error") {
+		t.Errorf("error %q should contain 'network error'", err.Error())
 	}
 }

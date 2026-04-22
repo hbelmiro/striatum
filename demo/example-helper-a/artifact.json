@@ -1,5 +1,5 @@
 {
-  "apiVersion": "striatum.dev/v1alpha1",
+  "apiVersion": "striatum.dev/v1alpha2",
   "kind": "Skill",
   "metadata": {
     "name": "example-helper-a",

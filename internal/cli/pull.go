@@ -16,13 +16,13 @@ import (
 
 func newPullCmd() *cobra.Command {
 	var outputDir string
-	var registry string
 	var noCache bool
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Download an artifact and its transitive dependencies",
 		Long: `Downloads the artifact and all dependencies into the output directory (default: current working directory).
 Reference can be a registry (host/repo/name:tag) or oci:/path:tag.
+Git dependencies declared in artifact.json are resolved automatically during pull.
 Each artifact is placed in a subdirectory named after the artifact (<output>/<name>/).
 
 By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or ~/.striatum/cache), the same layout used by "skill install", so "skill list" can show pulled skills. Use --no-cache to write only to the output directory.`,
@@ -56,22 +56,11 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				return fmt.Errorf("create output dir: %w", err)
 			}
 
-			isOCI := strings.HasPrefix(reference, "oci:")
-			if isOCI && len(rootManifest.Dependencies) > 0 && strings.TrimSpace(registry) == "" {
-				return fmt.Errorf("pull with oci: reference and dependencies requires --registry")
-			}
-
-			defaultRegistry := deriveDefaultRegistry(reference)
-			if isOCI {
-				defaultRegistry = strings.TrimSpace(registry)
-			}
-
 			var resolved []resolver.ResolvedArtifact
 			if len(rootManifest.Dependencies) == 0 {
 				resolved = []resolver.ResolvedArtifact{{
 					Name:     rootManifest.Metadata.Name,
 					Version:  rootManifest.Metadata.Version,
-					Registry: defaultRegistry,
 					Manifest: rootManifest,
 				}}
 			} else {
@@ -80,7 +69,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 					fetcher = NewCacheFirstFetcher(fetcher)
 				}
 				var resolveErr error
-				resolved, resolveErr = resolver.Resolve(ctx, rootManifest, defaultRegistry, fetcher)
+				resolved, resolveErr = resolver.Resolve(ctx, rootManifest, fetcher)
 				if resolveErr != nil {
 					return fmt.Errorf("resolving dependencies: %w", resolveErr)
 				}
@@ -88,21 +77,14 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 
 			if noCache {
 				for i, r := range resolved {
-					var pullTarget oras.ReadOnlyTarget
-					pullRef := r.Version
 					if i == 0 {
-						pullTarget = target
-						pullRef = ref
-					} else {
-						repo := strings.TrimSuffix(r.Registry, "/") + "/" + r.Name
-						reg, repoErr := oci.NewRepository(repo)
-						if repoErr != nil {
-							return fmt.Errorf("create repository for %s: %w", r.Name, repoErr)
+						if err := oci.Pull(ctx, target, ref, outputDir); err != nil {
+							return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
 						}
-						pullTarget = reg
-					}
-					if err := oci.Pull(ctx, pullTarget, pullRef, outputDir); err != nil {
-						return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+					} else {
+						if err := pullDependency(ctx, r.Dependency, outputDir); err != nil {
+							return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
+						}
 					}
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
@@ -123,26 +105,8 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 		},
 	}
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: current working directory)")
-	cmd.Flags().StringVar(&registry, "registry", "", "Registry base URL (required for oci: reference when root has dependencies)")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Do not write to the Striatum cache; only populate the output directory")
 	return cmd
-}
-
-// deriveDefaultRegistry returns the registry base from a remote reference (host/repo/name:tag -> host/repo).
-func deriveDefaultRegistry(reference string) string {
-	if strings.HasPrefix(reference, "oci:") {
-		return ""
-	}
-	i := strings.LastIndex(reference, ":")
-	if i < 0 {
-		return ""
-	}
-	repoPart := reference[:i]
-	j := strings.LastIndex(repoPart, "/")
-	if j < 0 {
-		return repoPart
-	}
-	return repoPart[:j]
 }
 
 // resolveTargetAndRef parses reference and returns a read-only target and the ref to resolve (tag).

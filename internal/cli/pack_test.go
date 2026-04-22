@@ -13,7 +13,7 @@ import (
 func setupTestProject(t *testing.T, dir, name string) {
 	t.Helper()
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
@@ -170,6 +170,51 @@ func TestPack_CustomOutputWithManifestFlagFromOtherDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cwd, "build", "index.json")); err == nil {
 		t.Error("did not expect OCI layout under unrelated cwd")
+	}
+}
+
+func TestPack_NoArtifactJSON_Errors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	root := NewRootCommand()
+	root.SetArgs([]string{"pack"})
+	if err := root.Execute(); err == nil {
+		t.Error("pack with no artifact.json: expected error")
+	}
+}
+
+func TestPack_InvalidManifest_Errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), []byte("{invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := NewRootCommand()
+	root.SetArgs([]string{"pack"})
+	if err := root.Execute(); err == nil {
+		t.Error("pack with invalid JSON: expected error")
+	}
+}
+
+func TestPack_MissingSpecFile_Errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "x", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "missing.md"}},
+	}
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := NewRootCommand()
+	root.SetArgs([]string{"pack"})
+	if err := root.Execute(); err == nil {
+		t.Error("pack with missing spec file: expected error")
 	}
 }
 

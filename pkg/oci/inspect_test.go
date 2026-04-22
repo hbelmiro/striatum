@@ -17,7 +17,7 @@ func TestInspect_ReturnsManifestFromPackedLayout(t *testing.T) {
 	layoutDir := t.TempDir()
 
 	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha1",
+		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
 		Metadata:   artifact.Metadata{Name: "inspect-skill", Version: "2.0.0", Description: "For inspect"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},

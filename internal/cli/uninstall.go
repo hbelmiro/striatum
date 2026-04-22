@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/spf13/cobra"
 )
@@ -116,11 +115,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	// Orphan cleanup: remove entries that are no longer required by any root
 	const maxOrphanPasses = 100
 	for pass := 0; pass < maxOrphanPasses; pass++ {
-		orphans, hadUnloadableRoot := computeOrphans(remaining)
-		if hadUnloadableRoot {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Could not load manifest for some installed roots; skipping orphan cleanup")
-			break
-		}
+		orphans := computeOrphans(remaining)
 		if len(orphans) == 0 {
 			break
 		}
@@ -143,43 +138,41 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	return nil
 }
 
-// computeOrphans returns entries that are no longer required by any root in the same target/project.
-// If any root's manifest cannot be loaded from cache, it returns (nil, true) so the caller
-// skips orphan removal (conservative: treat unknown deps as required).
-func computeOrphans(entries []installer.InstalledEntry) (orphans []installer.InstalledEntry, hadUnloadableRoot bool) {
-	// required[target|project] = set of skill names required in that context
-	type key string
-	required := make(map[key]map[string]bool)
+// computeOrphans returns entries whose InstalledWith roots are all absent.
+// InstalledWith may contain multiple space-separated root names when a dep
+// was installed by more than one root. The dep is only orphaned when none
+// of those roots are present.
+func computeOrphans(entries []installer.InstalledEntry) []installer.InstalledEntry {
+	type ctxKey string
+	roots := make(map[ctxKey]map[string]bool)
 	for _, e := range entries {
 		if e.InstalledWith != "" {
 			continue
 		}
-		ctxKey := key(e.Target + "|" + e.ProjectPath)
-		if required[ctxKey] == nil {
-			required[ctxKey] = make(map[string]bool)
+		ck := ctxKey(e.Target + "|" + e.ProjectPath)
+		if roots[ck] == nil {
+			roots[ck] = make(map[string]bool)
 		}
-		required[ctxKey][e.Skill] = true
-		cacheDir := installer.CacheDir(e.Skill, e.Version)
-		m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
-		if err != nil {
-			hadUnloadableRoot = true
-			continue
-		}
-		for _, d := range m.Dependencies {
-			required[ctxKey][d.Name] = true
-		}
+		roots[ck][e.Skill] = true
 	}
-	if hadUnloadableRoot {
-		return nil, true
-	}
+	var orphans []installer.InstalledEntry
 	for _, e := range entries {
-		ctxKey := key(e.Target + "|" + e.ProjectPath)
-		if required[ctxKey] != nil && required[ctxKey][e.Skill] {
+		if e.InstalledWith == "" {
 			continue
 		}
-		orphans = append(orphans, e)
+		ck := ctxKey(e.Target + "|" + e.ProjectPath)
+		anyPresent := false
+		for _, rn := range strings.Fields(e.InstalledWith) {
+			if roots[ck] != nil && roots[ck][rn] {
+				anyPresent = true
+				break
+			}
+		}
+		if !anyPresent {
+			orphans = append(orphans, e)
+		}
 	}
-	return orphans, false
+	return orphans
 }
 
 func removeEntries(entries, toRemove []installer.InstalledEntry) []installer.InstalledEntry {
