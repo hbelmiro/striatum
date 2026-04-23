@@ -56,7 +56,7 @@ striatum skill list
 striatum skill list --installed --target cursor
 ```
 
-See [docs/MVP.md](docs/MVP.md) for the full specification and [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
+See [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
 
 ## License
 
