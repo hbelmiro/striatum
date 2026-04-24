@@ -205,6 +205,16 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		return err
 	}
 
+	// Normalize project path early for conflict detection
+	normProject := ""
+	if projectPath != "" {
+		abs, err := filepath.Abs(projectPath)
+		if err != nil {
+			return fmt.Errorf("resolve project path %q: %w", projectPath, err)
+		}
+		normProject = abs
+	}
+
 	existing, err := installer.LoadInstalled()
 	if err != nil {
 		return fmt.Errorf("load installed: %w", err)
@@ -212,7 +222,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	if existing == nil {
 		existing = []installer.InstalledEntry{}
 	}
-	required := buildRequired(existing)
+	required := buildRequired(existing, normProject)
 	for _, r := range resolved {
 		if v, ok := required[r.Name]; ok && v != r.Version && !force {
 			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
@@ -231,14 +241,6 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	}
 
 	rootName := rootManifest.Metadata.Name
-	normProject := ""
-	if projectPath != "" {
-		abs, err := filepath.Abs(projectPath)
-		if err != nil {
-			return fmt.Errorf("resolve project path %q: %w", projectPath, err)
-		}
-		normProject = abs
-	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	byKey := make(map[string]*installer.InstalledEntry)
 	for i := range existing {
@@ -343,11 +345,14 @@ func repullToCache(ctx context.Context, sourceRef, cacheDir, name string) error 
 	return atomicReplaceCacheDir(created, cacheDir)
 }
 
-// buildRequired returns a map of skill name -> version for every installed entry.
-// Used for conflict detection before installing new artifacts.
-func buildRequired(entries []installer.InstalledEntry) map[string]string {
+// buildRequired returns a map of skill name -> version for installed entries in the given scope.
+// Filters to entries matching projectPath to enable per-scope conflict detection.
+func buildRequired(entries []installer.InstalledEntry, projectPath string) map[string]string {
 	required := make(map[string]string)
 	for _, e := range entries {
+		if e.ProjectPath != projectPath {
+			continue
+		}
 		required[e.Skill] = e.Version
 	}
 	return required

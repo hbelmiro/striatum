@@ -168,3 +168,172 @@ func writeArtifactForList(t *testing.T, dir string, m *artifact.Manifest) {
 		t.Fatal(err)
 	}
 }
+
+func TestSkillList_Installed_ShowsScopeColumn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--installed"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("skill list --installed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "SCOPE") {
+		t.Errorf("output should contain SCOPE header; got %q", got)
+	}
+	if !strings.Contains(got, "global") {
+		t.Errorf("output should contain 'global' for entry with empty ProjectPath; got %q", got)
+	}
+}
+
+func TestSkillList_Installed_ProjectScopeShowsPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectPath := "/Users/dev/project-a"
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--installed"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("skill list --installed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, projectPath) {
+		t.Errorf("output should contain project path %q; got %q", projectPath, got)
+	}
+}
+
+func TestSkillList_Installed_MixedScopes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectPath := "/Users/dev/project-a"
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "project-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--installed"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("skill list --installed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "global-skill") {
+		t.Errorf("output should contain global-skill; got %q", got)
+	}
+	if !strings.Contains(got, "project-skill") {
+		t.Errorf("output should contain project-skill; got %q", got)
+	}
+	if !strings.Contains(got, "global") {
+		t.Errorf("output should contain 'global' scope; got %q", got)
+	}
+	if !strings.Contains(got, projectPath) {
+		t.Errorf("output should contain project path; got %q", got)
+	}
+}
+
+func TestSkillList_Installed_ProjectFilter(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "project-a-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectA, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "project-b-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectB, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--installed", "--project", projectA})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("skill list --installed --project: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "project-a-skill") {
+		t.Errorf("output should contain project-a-skill; got %q", got)
+	}
+	if strings.Contains(got, "global-skill") {
+		t.Errorf("output should NOT contain global-skill when filtering by project; got %q", got)
+	}
+	if strings.Contains(got, "project-b-skill") {
+		t.Errorf("output should NOT contain project-b-skill when filtering by projectA; got %q", got)
+	}
+}
+
+func TestSkillList_Installed_ProjectFilter_NoMatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	nonExistentProject := t.TempDir()
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "list", "--installed", "--project", nonExistentProject})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("skill list --installed --project (no match): %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "No ") {
+		t.Errorf("output should indicate no installed skills; got %q", got)
+	}
+}
+
+func TestSkillList_ProjectWithoutInstalled_Errors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "list", "--project", "/some/path"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("skill list --project without --installed: expected error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "only valid with --installed") {
+		t.Errorf("error should mention --project only valid with --installed: %v", err)
+	}
+}

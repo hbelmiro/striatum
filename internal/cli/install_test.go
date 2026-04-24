@@ -539,3 +539,185 @@ func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
 		t.Errorf("installed content = %q, want \"# v2\"", got)
 	}
 }
+
+func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
+	entries := []installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj"},
+		{Skill: "skill-b", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+	}
+
+	// Global scope (ProjectPath = "")
+	got := buildRequired(entries, "")
+	if got["skill-a"] != "1.0.0" {
+		t.Errorf("global scope: skill-a = %q, want 1.0.0", got["skill-a"])
+	}
+	if got["skill-b"] != "1.0.0" {
+		t.Errorf("global scope: skill-b = %q, want 1.0.0", got["skill-b"])
+	}
+	if len(got) != 2 {
+		t.Errorf("global scope: len(required) = %d, want 2", len(got))
+	}
+}
+
+func TestBuildRequired_ProjectScope(t *testing.T) {
+	entries := []installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Skill: "skill-b", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Skill: "skill-c", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
+	}
+
+	// Project scope /proj/a
+	got := buildRequired(entries, "/proj/a")
+	if got["skill-a"] != "2.0.0" {
+		t.Errorf("project /proj/a: skill-a = %q, want 2.0.0", got["skill-a"])
+	}
+	if got["skill-b"] != "1.0.0" {
+		t.Errorf("project /proj/a: skill-b = %q, want 1.0.0", got["skill-b"])
+	}
+	if _, hasC := got["skill-c"]; hasC {
+		t.Errorf("project /proj/a: should NOT have skill-c (it's in /proj/b)")
+	}
+	if len(got) != 2 {
+		t.Errorf("project /proj/a: len(required) = %d, want 2", len(got))
+	}
+}
+
+func TestBuildRequired_EmptyEntries(t *testing.T) {
+	got := buildRequired(nil, "")
+	if len(got) != 0 {
+		t.Errorf("buildRequired(nil) = %v, want empty map", got)
+	}
+
+	got2 := buildRequired([]installer.InstalledEntry{}, "/proj")
+	if len(got2) != 0 {
+		t.Errorf("buildRequired(empty slice) = %v, want empty map", got2)
+	}
+}
+
+func TestInstall_CrossScopeNoConflict(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Setup: cache skill-a@1.0.0 and skill-a@2.0.0
+	for _, ent := range []struct{ name, version string }{
+		{"skill-a", "1.0.0"},
+		{"skill-a", "2.0.0"},
+	} {
+		cacheDir := installer.CacheDir(ent.name, ent.version)
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       "Skill",
+			Metadata:   artifact.Metadata{Name: ent.name, Version: ent.version},
+			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		}
+		data, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Install skill-a@1.0.0 globally
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install global: %v", err)
+	}
+
+	// Setup project directory
+	projectDir := t.TempDir()
+
+	// Install skill-a@2.0.0 for project (different scope)
+	// This should succeed WITHOUT --force because it's a different scope
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "--project", projectDir, "skill-a:2.0.0"})
+	err := root2.Execute()
+	if err != nil {
+		t.Fatalf("install project (cross-scope): expected success, got error: %v", err)
+	}
+
+	// Verify both entries exist in DB
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("LoadInstalled: %v", err)
+	}
+
+	var globalEntry, projectEntry *installer.InstalledEntry
+	for i := range entries {
+		e := &entries[i]
+		if e.Skill == "skill-a" && e.ProjectPath == "" {
+			globalEntry = e
+		} else if e.Skill == "skill-a" && e.ProjectPath == projectDir {
+			projectEntry = e
+		}
+	}
+
+	if globalEntry == nil {
+		t.Error("global entry for skill-a not found")
+	} else if globalEntry.Version != "1.0.0" {
+		t.Errorf("global entry version = %q, want 1.0.0", globalEntry.Version)
+	}
+
+	if projectEntry == nil {
+		t.Error("project entry for skill-a not found")
+	} else if projectEntry.Version != "2.0.0" {
+		t.Errorf("project entry version = %q, want 2.0.0", projectEntry.Version)
+	}
+}
+
+func TestInstall_SameScopeConflict(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Setup: cache skill-a@1.0.0 and skill-a@2.0.0
+	for _, ent := range []struct{ name, version string }{
+		{"skill-a", "1.0.0"},
+		{"skill-a", "2.0.0"},
+	} {
+		cacheDir := installer.CacheDir(ent.name, ent.version)
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       "Skill",
+			Metadata:   artifact.Metadata{Name: ent.name, Version: ent.version},
+			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		}
+		data, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Install skill-a@1.0.0 globally
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install global v1.0.0: %v", err)
+	}
+
+	// Try to install skill-a@2.0.0 globally (same scope)
+	// This should FAIL without --force
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:2.0.0"})
+	err := root2.Execute()
+	if err == nil {
+		t.Fatal("install same scope different version: expected error without --force")
+	}
+	if !strings.Contains(err.Error(), "conflicts") {
+		t.Errorf("error should mention conflicts: %v", err)
+	}
+}
