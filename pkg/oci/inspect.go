@@ -54,3 +54,13 @@ func Inspect(ctx context.Context, target oras.ReadOnlyTarget, ref string) (*arti
 	}
 	return m, nil
 }
+
+// ResolveDigest resolves the OCI manifest digest for the given reference without
+// fetching the full manifest or config. Returns the digest string (e.g. "sha256:abc...").
+func ResolveDigest(ctx context.Context, target oras.ReadOnlyTarget, ref string) (string, error) {
+	desc, err := target.Resolve(ctx, ref)
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", ref, err)
+	}
+	return desc.Digest.String(), nil
+}

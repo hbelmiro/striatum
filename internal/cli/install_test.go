@@ -230,7 +230,7 @@ func TestInstall_FromCache_WhenRefMapsToCachedSkill_SucceedsWithoutInspect(t *te
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "foo:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install from cache: %v", err)
 	}
@@ -311,14 +311,14 @@ func TestInstall_ConflictWithoutForce_Errors(t *testing.T) {
 
 	// Install v1 first
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "localhost:5000/skills/conflict-skill:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "conflict-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
 
 	// Try to install v2 without --force
 	root2 := NewRootCommand()
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "localhost:5000/skills/conflict-skill:2.0.0"})
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "conflict-skill:2.0.0"})
 	err := root2.Execute()
 	if err == nil {
 		t.Fatal("install conflicting version without --force: expected error")
@@ -357,7 +357,7 @@ func TestInstall_ConflictWithForce_Succeeds(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "localhost:5000/skills/force-skill:1.0.0"})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "force-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestInstall_ConflictWithForce_Succeeds(t *testing.T) {
 	out := &strings.Builder{}
 	root2 := NewRootCommand()
 	root2.SetOut(out)
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "--force", "localhost:5000/skills/force-skill:2.0.0"})
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "--force", "force-skill:2.0.0"})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("install with --force: %v", err)
 	}
@@ -408,59 +408,134 @@ func TestInstall_ReinstallAll_EmptyRegistry_Errors(t *testing.T) {
 	}
 }
 
-func TestInstall_FromCache_WithDependencies(t *testing.T) {
+func TestInstall_OCI_DigestCacheHit_SkipsPull(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	for _, ent := range []struct {
-		name, version string
-		deps          []artifact.Dependency
-	}{
-		{"example-helper-a", "1.0.0", nil},
-		{"example-helper-b", "1.0.0", nil},
-		{"example-skill", "1.0.0", []artifact.Dependency{
-			&artifact.OCIDependency{RegistryHost: "example-registry", Repository: "example-helper-a", Tag: "1.0.0"},
-			&artifact.OCIDependency{RegistryHost: "example-registry", Repository: "example-helper-b", Tag: "1.0.0"},
-		}},
-	} {
-		cacheDir := installer.CacheDir(ent.name, ent.version)
-		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		manifest := &artifact.Manifest{
-			APIVersion:   "striatum.dev/v1alpha2",
-			Kind:         "Skill",
-			Metadata:     artifact.Metadata{Name: ent.name, Version: ent.version},
-			Spec:         artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
-			Dependencies: ent.deps,
-		}
-		data, err := json.Marshal(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(cacheDir, "SKILL.md"), []byte("# "+ent.name), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "digest-cache-hit", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	cacheDir := installer.CacheDir("digest-cache-hit", "1.0.0")
+	digestPath := filepath.Join(cacheDir, ".oci-digest")
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatalf("read .oci-digest: %v", err)
+	}
+	digest := strings.TrimSpace(string(digestBytes))
+	if !strings.HasPrefix(digest, "sha256:") {
+		t.Errorf("digest %q should start with sha256:", digest)
 	}
 
 	out := &strings.Builder{}
-	root := NewRootCommand()
-	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "example-registry/example-skill:1.0.0"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("install from cache with deps: %v", err)
+	root2 := NewRootCommand()
+	root2.SetOut(out)
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("second install (cache hit): %v", err)
 	}
 	if !strings.Contains(out.String(), "Installed") {
-		t.Errorf("output %q", out.String())
+		t.Errorf("output %q missing Installed", out.String())
 	}
-	for _, name := range []string{"example-skill", "example-helper-a", "example-helper-b"} {
-		dir := filepath.Join(home, ".cursor", "skills", name)
-		if _, err := os.Stat(filepath.Join(dir, "artifact.json")); err != nil {
-			t.Errorf("artifact %s not installed: %v", name, err)
-		}
+}
+
+func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
+	layoutDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest1 := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "digest-mismatch", Version: "1.0.0", Description: "v1"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+
+	baseDir1 := t.TempDir()
+	data1, err := json.Marshal(manifest1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir1, "artifact.json"), data1, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir1, "SKILL.md"), []byte("# v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest1, baseDir1, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	manifest2 := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "digest-mismatch", Version: "1.0.0", Description: "v2"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	baseDir2 := t.TempDir()
+	data2, err := json.Marshal(manifest2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir2, "artifact.json"), data2, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir2, "SKILL.md"), []byte("# v2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest2, baseDir2, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root2 := NewRootCommand()
+	root2.SetOut(out)
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("second install (digest mismatch): %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("output %q missing Installed", out.String())
+	}
+
+	installedSkill := filepath.Join(home, ".cursor", "skills", "digest-mismatch", "SKILL.md")
+	content, err := os.ReadFile(installedSkill)
+	if err != nil {
+		t.Fatalf("read installed SKILL.md: %v", err)
+	}
+	if got := string(content); got != "# v2" {
+		t.Errorf("installed content = %q, want \"# v2\"", got)
 	}
 }

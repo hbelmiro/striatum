@@ -15,7 +15,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/registry"
 	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
-	oras "oras.land/oras-go/v2"
+	"oras.land/oras-go/v2"
 )
 
 func newInstallCmd() *cobra.Command {
@@ -361,6 +361,44 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 	for i, r := range resolved {
 		idx, res := i, r
 		cacheDir := installer.CacheDir(res.Name, res.Version)
+
+		// Construct DigestFunc based on artifact type
+		var digestFn installer.DigestFunc
+		if idx == 0 {
+			// Root artifact: use rootTarget/rootRef if available
+			if rootTarget != nil && !strings.HasPrefix(reference, "git:") {
+				capturedTarget, capturedRef := rootTarget, rootRef
+				digestFn = func(ctx context.Context) (string, error) {
+					return oci.ResolveDigest(ctx, capturedTarget, capturedRef)
+				}
+			} else if rootTarget == nil && !strings.HasPrefix(reference, "git:") && (strings.Contains(reference, "/") || strings.HasPrefix(reference, "oci:")) {
+				// Root was loaded from cache; lazy-resolve target for digest (only if not short ref)
+				capturedRef := reference
+				digestFn = func(ctx context.Context) (string, error) {
+					t, ref, err := resolveTargetAndRef(capturedRef)
+					if err != nil {
+						return "", err
+					}
+					return oci.ResolveDigest(ctx, t, ref)
+				}
+			}
+			// If git ref or short ref, digestFn stays nil
+		} else {
+			// Dependency: check if it's an OCI dependency
+			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
+				capturedDep := ociDep
+				digestFn = func(ctx context.Context) (string, error) {
+					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
+					reg, err := oci.NewRepository(repoPath)
+					if err != nil {
+						return "", err
+					}
+					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
+				}
+			}
+			// Git dependencies: digestFn stays nil (no digest checking)
+		}
+
 		pullFn := func(ctx context.Context, _ string) error {
 			if idx == 0 {
 				pullTarget := rootTarget
@@ -386,7 +424,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 			}
 			return nil
 		}
-		if err := installer.EnsureInCache(ctx, cacheDir, pullFn); err != nil {
+		if err := installer.EnsureInCache(ctx, cacheDir, pullFn, digestFn); err != nil {
 			return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 		}
 	}
