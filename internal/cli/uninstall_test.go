@@ -438,3 +438,282 @@ func writeArtifact(t *testing.T, dir string, m *artifact.Manifest) {
 		t.Fatal(err)
 	}
 }
+
+func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+
+	// Setup cache for skill-a
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, cacheDir, manifest)
+
+	// Install globally
+	globalTargetDir, err := installer.Targets("cursor", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(globalTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, globalTargetDir, "skill-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Install for project
+	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, projectTargetDir, "skill-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save DB with both entries
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Uninstall globally (no --project flag)
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall global: %v", err)
+	}
+
+	// Verify global entry removed
+	if _, err := os.Stat(filepath.Join(globalTargetDir, "skill-a")); !os.IsNotExist(err) {
+		t.Error("global skill-a should be removed")
+	}
+
+	// Verify project entry still exists
+	if _, err := os.Stat(filepath.Join(projectTargetDir, "skill-a")); os.IsNotExist(err) {
+		t.Error("project skill-a should still exist")
+	}
+
+	// Verify DB has only project entry
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (project), got %d", len(entries))
+	}
+	if entries[0].ProjectPath != projectDir {
+		t.Errorf("remaining entry ProjectPath = %q, want %q", entries[0].ProjectPath, projectDir)
+	}
+}
+
+func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+
+	// Setup cache for skill-a
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, cacheDir, manifest)
+
+	// Install globally
+	globalTargetDir, err := installer.Targets("cursor", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(globalTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, globalTargetDir, "skill-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Install for project
+	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, projectTargetDir, "skill-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save DB with both entries
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Uninstall from project scope
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "--project", projectDir, "skill-a"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall project: %v", err)
+	}
+
+	// Verify project entry removed
+	if _, err := os.Stat(filepath.Join(projectTargetDir, "skill-a")); !os.IsNotExist(err) {
+		t.Error("project skill-a should be removed")
+	}
+
+	// Verify global entry still exists
+	if _, err := os.Stat(filepath.Join(globalTargetDir, "skill-a")); os.IsNotExist(err) {
+		t.Error("global skill-a should still exist")
+	}
+
+	// Verify DB has only global entry
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (global), got %d", len(entries))
+	}
+	if entries[0].ProjectPath != "" {
+		t.Errorf("remaining entry ProjectPath = %q, want empty (global)", entries[0].ProjectPath)
+	}
+}
+
+func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+
+	// Setup cache for root-a, dep-x, root-b
+	for _, name := range []string{"root-a", "dep-x", "root-b"} {
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       "Skill",
+			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
+			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		}
+		cacheDir := installer.CacheDir(name, "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeArtifact(t, cacheDir, m)
+	}
+
+	// Install to global target
+	globalTargetDir, err := installer.Targets("cursor", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(globalTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"root-a", "dep-x"} {
+		cacheDir := installer.CacheDir(name, "1.0.0")
+		if err := installer.InstallToTarget(cacheDir, globalTargetDir, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Install to project target
+	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectTargetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := installer.CacheDir("root-b", "1.0.0")
+	if err := installer.InstallToTarget(cacheDir, projectTargetDir, "root-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save DB: global (root-a + dep-x), project (root-b)
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "root-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "dep-x", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "root-b", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Uninstall root-a from global scope
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-a"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall root-a: %v", err)
+	}
+
+	// Verify global: root-a and dep-x removed (orphan cleanup)
+	if _, err := os.Stat(filepath.Join(globalTargetDir, "root-a")); !os.IsNotExist(err) {
+		t.Error("global root-a should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(globalTargetDir, "dep-x")); !os.IsNotExist(err) {
+		t.Error("global dep-x should be removed (orphan)")
+	}
+
+	// Verify project: root-b still exists (different scope)
+	if _, err := os.Stat(filepath.Join(projectTargetDir, "root-b")); os.IsNotExist(err) {
+		t.Error("project root-b should still exist (different scope)")
+	}
+
+	// Verify DB has only root-b
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (root-b), got %d", len(entries))
+	}
+	if entries[0].Skill != "root-b" || entries[0].ProjectPath != projectDir {
+		t.Errorf("remaining entry = %+v, want root-b in project scope", entries[0])
+	}
+}
+
+func TestComputeOrphans_CrossScope_NoFalseOrphan(t *testing.T) {
+	projectDir := "/proj"
+
+	// After removing root-a from global scope
+	remainingAfterRemoveRootA := []installer.InstalledEntry{
+		{Skill: "dep-x", Version: "1.0.0", Target: "cursor", ProjectPath: "", InstalledWith: "root-a"},
+		{Skill: "root-b", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: ""},
+		{Skill: "dep-x", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: "root-b"},
+	}
+
+	orphans := computeOrphans(remainingAfterRemoveRootA)
+
+	// Should find 1 orphan: global dep-x (root-a gone in global scope)
+	// Should NOT find project dep-x as orphan (root-b still exists in project scope)
+	if len(orphans) != 1 {
+		t.Fatalf("len(orphans) = %d, want 1 (global dep-x only)", len(orphans))
+	}
+
+	if orphans[0].Skill != "dep-x" || orphans[0].ProjectPath != "" {
+		t.Errorf("orphan = %+v, want global dep-x", orphans[0])
+	}
+}
