@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-const cacheDirName = "cache"
+const (
+	cacheDirName   = "cache"
+	digestFileName = ".oci-digest"
+)
 
 // CacheRoot returns the striatum config root (~/.striatum or STRIATUM_HOME).
 // If STRIATUM_HOME is unset and os.UserHomeDir() fails, it falls back to ".striatum"
@@ -33,19 +37,83 @@ func CacheDir(name, version string) string {
 // PullFunc is called to pull an artifact into outputDir.
 type PullFunc func(ctx context.Context, outputDir string) error
 
-// EnsureInCache ensures the artifact is in cacheDir. If artifact.json already exists there, skip pull.
-// Only pulls when the manifest is missing (os.IsNotExist); other Stat errors (e.g. permission) are returned.
-func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc) error {
+// DigestFunc resolves the current remote OCI manifest digest.
+// Returns (digest, nil) on success, ("", error) when the registry is unreachable.
+type DigestFunc func(ctx context.Context) (string, error)
+
+// ReadDigest returns the stored OCI manifest digest from cacheDir/.oci-digest.
+// Returns ("", nil) when the file does not exist.
+func ReadDigest(cacheDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(cacheDir, digestFileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// WriteDigest writes the OCI manifest digest to cacheDir/.oci-digest.
+func WriteDigest(cacheDir, digest string) error {
+	return os.WriteFile(filepath.Join(cacheDir, digestFileName), []byte(digest), 0o600)
+}
+
+// isCacheFresh checks whether the cached artifact matches the remote digest.
+// Returns (true, digest) when fresh, (false, digest) when stale or unverifiable.
+func isCacheFresh(ctx context.Context, cacheDir string, resolveDigest DigestFunc) (bool, string) {
+	remoteDigest, err := resolveDigest(ctx)
+	if err != nil {
+		return false, ""
+	}
+	localDigest, err := ReadDigest(cacheDir)
+	if err != nil || localDigest == "" {
+		return false, remoteDigest
+	}
+	return localDigest == remoteDigest, remoteDigest
+}
+
+// EnsureInCache ensures the artifact is in cacheDir with digest verification when resolveDigest is provided.
+// When resolveDigest is non-nil and the cache cannot be verified as fresh, the cache is discarded and re-pulled.
+// When resolveDigest is nil, an existing cache is trusted without verification.
+func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc, resolveDigest DigestFunc) error {
 	manifestPath := filepath.Join(cacheDir, "artifact.json")
-	_, err := os.Stat(manifestPath)
-	if err == nil {
-		return nil
+	_, statErr := os.Stat(manifestPath)
+
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return fmt.Errorf("stat cache dir %s: %w", cacheDir, statErr)
 	}
-	if !os.IsNotExist(err) {
-		return fmt.Errorf("stat cache dir %s: %w", cacheDir, err)
+	cacheExists := statErr == nil
+
+	var remoteDigest string
+	if cacheExists {
+		if resolveDigest == nil {
+			return nil
+		}
+		var fresh bool
+		fresh, remoteDigest = isCacheFresh(ctx, cacheDir, resolveDigest)
+		if fresh {
+			return nil
+		}
+		if err := os.RemoveAll(cacheDir); err != nil {
+			return fmt.Errorf("remove stale cache %s: %w", cacheDir, err)
+		}
 	}
+
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	return pull(ctx, cacheDir)
+	if err := pull(ctx, cacheDir); err != nil {
+		return err
+	}
+
+	if remoteDigest == "" && resolveDigest != nil {
+		if d, err := resolveDigest(ctx); err == nil {
+			remoteDigest = d
+		}
+	}
+	if remoteDigest != "" {
+		_ = WriteDigest(cacheDir, remoteDigest)
+	}
+	return nil
 }
