@@ -3,7 +3,7 @@ module github.com/hbelmiro/striatum
 go 1.26.1
 
 require (
-	github.com/go-git/go-git/v5 v5.17.2
+	github.com/go-git/go-git/v5 v5.18.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
