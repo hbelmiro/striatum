@@ -443,11 +443,36 @@ func TestResolve_VersionConflict_ListsAllParents(t *testing.T) {
 	if !strings.Contains(errMsg, "dependency version conflict") {
 		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
 	}
-	if !strings.Contains(errMsg, "required by alpha, bravo") {
+	if !strings.Contains(errMsg, "required by alpha@1.0.0, bravo@1.0.0") {
 		t.Errorf("error should list both parents for shared@2.0.0: %v", err)
 	}
-	if !strings.Contains(errMsg, "required by gamma") {
+	if !strings.Contains(errMsg, "required by gamma@1.0.0") {
 		t.Errorf("error should list gamma as parent for shared@3.0.0: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_ParentVersionDisambiguation(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/alpha:2.0.0":  mf("alpha", "2.0.0", ociDep("reg", "skills/shared", "3.0.0")),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+		"reg/skills/shared:3.0.0": mf("shared", "3.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/alpha", "2.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for version conflict")
+	}
+	errMsg := err.Error()
+	// The shared conflict should attribute parents with version to disambiguate
+	// alpha@1.0.0 → shared@2.0.0, alpha@2.0.0 → shared@3.0.0
+	if !strings.Contains(errMsg, "shared@2.0.0 (required by alpha@1.0.0)") {
+		t.Errorf("error should show versioned parent 'alpha@1.0.0' for shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@3.0.0 (required by alpha@2.0.0)") {
+		t.Errorf("error should show versioned parent 'alpha@2.0.0' for shared@3.0.0: %v", err)
 	}
 }
 

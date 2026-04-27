@@ -99,7 +99,7 @@ func Resolve(ctx context.Context, root *artifact.Manifest, fetcher DependencyFet
 				}
 				fetchCache[refKey] = depManifest
 			}
-			if err := walk(depManifest, d, m.Metadata.Name); err != nil {
+			if err := walk(depManifest, d, nvKey); err != nil {
 				return err
 			}
 		}
