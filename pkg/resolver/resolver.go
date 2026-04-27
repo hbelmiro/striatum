@@ -25,8 +25,8 @@ type ResolvedArtifact struct {
 
 // versionOrigin tracks which parent requested a particular version of a name.
 type versionOrigin struct {
-	version string
-	parent  string // empty string for root
+	version  string
+	parentNV string // name@version of the requesting parent; empty for root
 }
 
 // Resolve walks the dependency tree starting at root, deduplicates by name@version,
@@ -58,8 +58,8 @@ func Resolve(ctx context.Context, root *artifact.Manifest, fetcher DependencyFet
 	nameOrigins := make(map[string][]versionOrigin)
 	var result []ResolvedArtifact
 
-	var walk func(m *artifact.Manifest, dep artifact.Dependency, parentName string) error
-	walk = func(m *artifact.Manifest, dep artifact.Dependency, parentName string) error {
+	var walk func(m *artifact.Manifest, dep artifact.Dependency, parentNV string) error
+	walk = func(m *artifact.Manifest, dep artifact.Dependency, parentNV string) error {
 		if m == nil {
 			return errors.New("manifest is nil")
 		}
@@ -70,8 +70,8 @@ func Resolve(ctx context.Context, root *artifact.Manifest, fetcher DependencyFet
 
 		// Record origin before dedup so all parents are tracked for conflict detection.
 		nameOrigins[m.Metadata.Name] = append(nameOrigins[m.Metadata.Name], versionOrigin{
-			version: m.Metadata.Version,
-			parent:  parentName,
+			version:  m.Metadata.Version,
+			parentNV: parentNV,
 		})
 
 		if visitedNV[nvKey] {
@@ -126,7 +126,7 @@ func detectConflicts(nameOrigins map[string][]versionOrigin) string {
 	for name, origins := range nameOrigins {
 		versions := make(map[string][]string) // version -> list of parents
 		for _, o := range origins {
-			parent := o.parent
+			parent := o.parentNV
 			if parent == "" {
 				parent = "(root)"
 			}
