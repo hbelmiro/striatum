@@ -276,3 +276,227 @@ func TestResolve_FetcherReturnsError(t *testing.T) {
 		t.Errorf("error %q should contain 'network error'", err.Error())
 	}
 }
+
+// --- Version conflict detection tests ---
+
+func TestResolve_VersionConflict_Transitive(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/bravo:1.0.0":  mf("bravo", "1.0.0", ociDep("reg", "skills/shared", "3.0.0")),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+		"reg/skills/shared:3.0.0": mf("shared", "3.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/bravo", "1.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for transitive version conflict")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "shared@2.0.0") {
+		t.Errorf("error should mention shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@3.0.0") {
+		t.Errorf("error should mention shared@3.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "alpha") {
+		t.Errorf("error should mention alpha as parent: %v", err)
+	}
+	if !strings.Contains(errMsg, "bravo") {
+		t.Errorf("error should mention bravo as parent: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_RootVsDep(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("shared", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for root vs dep version conflict")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "shared@1.0.0") {
+		t.Errorf("error should mention shared@1.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@2.0.0") {
+		t.Errorf("error should mention shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "(root)") {
+		t.Errorf("error should mention (root) as parent for 1.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "alpha") {
+		t.Errorf("error should mention alpha as parent for 2.0.0: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_ThreeVersions(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "1.0.0")),
+		"reg/skills/bravo:1.0.0":  mf("bravo", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/gamma:1.0.0":  mf("gamma", "1.0.0", ociDep("reg", "skills/shared", "3.0.0")),
+		"reg/skills/shared:1.0.0": mf("shared", "1.0.0"),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+		"reg/skills/shared:3.0.0": mf("shared", "3.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/bravo", "1.0.0"),
+		ociDep("reg", "skills/gamma", "1.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for three-version conflict")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "shared@1.0.0") {
+		t.Errorf("error should mention shared@1.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@2.0.0") {
+		t.Errorf("error should mention shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@3.0.0") {
+		t.Errorf("error should mention shared@3.0.0: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_MixedBackends(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/shared:1.0.0":              mf("shared", "1.0.0"),
+		"git:https://gh.com/shared.git@v2.0.0": mf("shared", "2.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/shared", "1.0.0"),
+		gitDep("https://gh.com/shared.git", "v2.0.0", ""),
+	), f)
+	if err == nil {
+		t.Fatal("want error for mixed-backend version conflict")
+	}
+	if !strings.Contains(err.Error(), "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "shared@1.0.0") {
+		t.Errorf("error should mention shared@1.0.0: %v", err)
+	}
+	if !strings.Contains(err.Error(), "shared@2.0.0") {
+		t.Errorf("error should mention shared@2.0.0: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_MultipleNames(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0": mf("alpha", "1.0.0", ociDep("reg", "skills/lib-x", "1.0.0"), ociDep("reg", "skills/lib-y", "1.0.0")),
+		"reg/skills/bravo:1.0.0": mf("bravo", "1.0.0", ociDep("reg", "skills/lib-x", "2.0.0"), ociDep("reg", "skills/lib-y", "2.0.0")),
+		"reg/skills/lib-x:1.0.0": mf("lib-x", "1.0.0"),
+		"reg/skills/lib-x:2.0.0": mf("lib-x", "2.0.0"),
+		"reg/skills/lib-y:1.0.0": mf("lib-y", "1.0.0"),
+		"reg/skills/lib-y:2.0.0": mf("lib-y", "2.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/bravo", "1.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for multiple conflicting names")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "lib-x") {
+		t.Errorf("error should mention lib-x: %v", err)
+	}
+	if !strings.Contains(errMsg, "lib-y") {
+		t.Errorf("error should mention lib-y: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_ListsAllParents(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/bravo:1.0.0":  mf("bravo", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/gamma:1.0.0":  mf("gamma", "1.0.0", ociDep("reg", "skills/shared", "3.0.0")),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+		"reg/skills/shared:3.0.0": mf("shared", "3.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/bravo", "1.0.0"),
+		ociDep("reg", "skills/gamma", "1.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for version conflict")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "required by alpha@1.0.0, bravo@1.0.0") {
+		t.Errorf("error should list both parents for shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "required by gamma@1.0.0") {
+		t.Errorf("error should list gamma as parent for shared@3.0.0: %v", err)
+	}
+}
+
+func TestResolve_VersionConflict_ParentVersionDisambiguation(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "2.0.0")),
+		"reg/skills/alpha:2.0.0":  mf("alpha", "2.0.0", ociDep("reg", "skills/shared", "3.0.0")),
+		"reg/skills/shared:2.0.0": mf("shared", "2.0.0"),
+		"reg/skills/shared:3.0.0": mf("shared", "3.0.0"),
+	}}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/alpha", "2.0.0"),
+	), f)
+	if err == nil {
+		t.Fatal("want error for version conflict")
+	}
+	errMsg := err.Error()
+	// The shared conflict should attribute parents with version to disambiguate
+	// alpha@1.0.0 → shared@2.0.0, alpha@2.0.0 → shared@3.0.0
+	if !strings.Contains(errMsg, "shared@2.0.0 (required by alpha@1.0.0)") {
+		t.Errorf("error should show versioned parent 'alpha@1.0.0' for shared@2.0.0: %v", err)
+	}
+	if !strings.Contains(errMsg, "shared@3.0.0 (required by alpha@2.0.0)") {
+		t.Errorf("error should show versioned parent 'alpha@2.0.0' for shared@3.0.0: %v", err)
+	}
+}
+
+func TestResolve_NoConflict_SameVersionDifferentParents(t *testing.T) {
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "1.0.0")),
+		"reg/skills/bravo:1.0.0":  mf("bravo", "1.0.0", ociDep("reg", "skills/shared", "1.0.0")),
+		"reg/skills/shared:1.0.0": mf("shared", "1.0.0"),
+	}}
+	got, err := Resolve(context.Background(), mf("root", "1.0.0",
+		ociDep("reg", "skills/alpha", "1.0.0"),
+		ociDep("reg", "skills/bravo", "1.0.0"),
+	), f)
+	if err != nil {
+		t.Fatalf("want no error for same version, got %v", err)
+	}
+	// shared should appear exactly once (deduped)
+	sharedCount := 0
+	for _, r := range got {
+		if r.Name == "shared" {
+			sharedCount++
+		}
+	}
+	if sharedCount != 1 {
+		t.Errorf("shared should appear exactly once, got %d", sharedCount)
+	}
+}
