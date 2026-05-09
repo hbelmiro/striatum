@@ -1062,3 +1062,192 @@ func TestInstall_LocalDir_AlwaysCopiesFresh(t *testing.T) {
 		t.Errorf("installed file should have updated content, got: %s", data)
 	}
 }
+
+func TestInstall_LocalDir_PathTraversalName(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "../escape", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# X"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for path traversal in name")
+	}
+	if !strings.Contains(err.Error(), "unsafe") {
+		t.Errorf("error should mention unsafe: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_PathTraversalVersion(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "ok-name", Version: "../../etc"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# X"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for path traversal in version")
+	}
+	if !strings.Contains(err.Error(), "unsafe") {
+		t.Errorf("error should mention unsafe: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_SymlinkEscape(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	secretDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.WriteFile(filepath.Join(secretDir, "secret.txt"), []byte("sensitive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(secretDir, "secret.txt"), filepath.Join(skillDir, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "symlink-test", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for symlink escape")
+	}
+	if !strings.Contains(err.Error(), "symlink") || !strings.Contains(err.Error(), "outside") {
+		t.Errorf("error should mention symlink escape: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_WithDeps(t *testing.T) {
+	home := t.TempDir()
+	skillDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	depName := "dep-a"
+	depVersion := "1.0.0"
+	rootManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "root-with-dep", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: "localhost:5000",
+				Repository:   depName,
+				Tag:          depVersion,
+			},
+		},
+	}
+	data, err := json.Marshal(rootManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Root"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	depCacheDir := installer.CacheDir(depName, depVersion)
+	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: depName, Version: depVersion},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	depData, err := json.Marshal(depManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "artifact.json"), depData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "SKILL.md"), []byte("# Dep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed 2") {
+		t.Errorf("expected 2 artifacts installed, got %q", out.String())
+	}
+
+	rootTarget := filepath.Join(home, ".cursor", "skills", "root-with-dep")
+	if _, err := os.Stat(filepath.Join(rootTarget, "SKILL.md")); err != nil {
+		t.Errorf("root SKILL.md not installed: %v", err)
+	}
+	depTarget := filepath.Join(home, ".cursor", "skills", depName)
+	if _, err := os.Stat(filepath.Join(depTarget, "SKILL.md")); err != nil {
+		t.Errorf("dep SKILL.md not installed: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 DB entries, got %d", len(entries))
+	}
+}

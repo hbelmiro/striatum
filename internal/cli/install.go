@@ -247,12 +247,19 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		return fmt.Errorf("validate local files: %w", err)
 	}
 
+	name := rootManifest.Metadata.Name
+	version := rootManifest.Metadata.Version
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
+		strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
+		return fmt.Errorf("unsafe metadata.name or metadata.version: must not contain path separators or '..'")
+	}
+
 	ctx := cmd.Context()
 	var resolved []resolver.ResolvedArtifact
 	if len(rootManifest.Dependencies) == 0 {
 		resolved = []resolver.ResolvedArtifact{{
-			Name:     rootManifest.Metadata.Name,
-			Version:  rootManifest.Metadata.Version,
+			Name:     name,
+			Version:  version,
 			Manifest: rootManifest,
 		}}
 	} else {
@@ -263,7 +270,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		}
 	}
 
-	cacheDir := installer.CacheDir(rootManifest.Metadata.Name, rootManifest.Metadata.Version)
+	cacheDir := installer.CacheDir(name, version)
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("clean cache dir: %w", err)
 	}
@@ -279,20 +286,6 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		for _, r := range resolved[1:] {
 			res := r
 			depCacheDir := installer.CacheDir(res.Name, res.Version)
-
-			var digestFn installer.DigestFunc
-			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
-				capturedDep := ociDep
-				digestFn = func(ctx context.Context) (string, error) {
-					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
-					reg, err := oci.NewRepository(repoPath)
-					if err != nil {
-						return "", err
-					}
-					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
-				}
-			}
-
 			pullFn := func(ctx context.Context, _ string) error {
 				if err := pullDependency(ctx, res.Dependency, cacheRoot); err != nil {
 					return err
@@ -300,7 +293,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 				created := filepath.Join(cacheRoot, res.Name)
 				return atomicReplaceCacheDir(created, depCacheDir)
 			}
-			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, digestFn); err != nil {
+			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, nil); err != nil {
 				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 			}
 		}
@@ -310,7 +303,21 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 }
 
 func copyLocalToCache(srcDir, cacheDir string, files []string) error {
-	data, err := os.ReadFile(filepath.Join(srcDir, "artifact.json"))
+	realSrcDir, err := filepath.EvalSymlinks(srcDir)
+	if err != nil {
+		return fmt.Errorf("resolve source dir: %w", err)
+	}
+	srcPrefix := realSrcDir + string(filepath.Separator)
+
+	manifestSrc := filepath.Join(srcDir, "artifact.json")
+	realManifest, err := filepath.EvalSymlinks(manifestSrc)
+	if err != nil {
+		return fmt.Errorf("resolve artifact.json: %w", err)
+	}
+	if realManifest != realSrcDir && !strings.HasPrefix(realManifest, srcPrefix) {
+		return fmt.Errorf("artifact.json resolves outside skill directory via symlink")
+	}
+	data, err := os.ReadFile(manifestSrc)
 	if err != nil {
 		return fmt.Errorf("read artifact.json: %w", err)
 	}
@@ -320,6 +327,14 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 
 	for _, f := range files {
 		src := filepath.Join(srcDir, filepath.FromSlash(f))
+		realSrc, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", f, err)
+		}
+		if realSrc != realSrcDir && !strings.HasPrefix(realSrc, srcPrefix) {
+			return fmt.Errorf("file %q resolves outside skill directory via symlink", f)
+		}
+
 		dst := filepath.Join(cacheDir, filepath.FromSlash(f))
 		if dir := filepath.Dir(dst); dir != cacheDir {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
