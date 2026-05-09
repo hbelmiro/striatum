@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -719,5 +720,345 @@ func TestInstall_SameScopeConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "conflicts") {
 		t.Errorf("error should mention conflicts: %v", err)
+	}
+}
+
+// --- Local directory install tests ---
+
+func writeLocalSkill(t *testing.T, dir, name, version, entrypoint string, files map[string]string) *artifact.Manifest {
+	t.Helper()
+	fileNames := make([]string, 0, len(files))
+	for f := range files {
+		fileNames = append(fileNames, f)
+	}
+	sort.Strings(fileNames)
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: name, Version: version},
+		Spec:       artifact.Spec{Entrypoint: entrypoint, Files: fileNames},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for f, content := range files {
+		p := filepath.Join(dir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return manifest
+}
+
+func TestInstall_LocalDir_HappyPath(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "local-skill", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# Local Skill",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install from local dir: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("expected Installed in output, got %q", out.String())
+	}
+	installed := filepath.Join(home, ".cursor", "skills", "local-skill")
+	if _, err := os.Stat(filepath.Join(installed, "artifact.json")); err != nil {
+		t.Errorf("artifact.json not installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installed, "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md not installed: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_DotReference(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	t.Chdir(skillDir)
+
+	writeLocalSkill(t, skillDir, "dot-skill", "0.1.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# Dot",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "install", "--target", "claude", "."})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install from '.': %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("expected Installed in output, got %q", out.String())
+	}
+	installed := filepath.Join(home, ".claude", "skills", "dot-skill")
+	if _, err := os.Stat(filepath.Join(installed, "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md not installed: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_InvalidManifest(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	bad := &artifact.Manifest{
+		APIVersion: "wrong/v1",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "bad", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid manifest")
+	}
+	if !strings.Contains(err.Error(), "apiVersion") {
+		t.Errorf("error should mention apiVersion, got: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_MissingSpecFile(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "missing-file", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "missing.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing spec file")
+	}
+	if !strings.Contains(err.Error(), "missing.md") {
+		t.Errorf("error should mention missing file, got: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_CacheCorrectness(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "cache-test", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# Cache Test",
+	})
+	if err := os.WriteFile(filepath.Join(skillDir, "README.md"), []byte("# Ignore me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	cacheDir := installer.CacheDir("cache-test", "1.0.0")
+	if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
+		t.Errorf("artifact.json missing from cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md missing from cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "README.md")); !os.IsNotExist(err) {
+		t.Errorf("README.md should not be in cache (err=%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, ".git")); !os.IsNotExist(err) {
+		t.Errorf(".git should not be in cache (err=%v)", err)
+	}
+}
+
+func TestInstall_LocalDir_DBEntry(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "db-test", "2.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# DB",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"skill", "install", "--target", "claude", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.Skill != "db-test" {
+		t.Errorf("Skill = %q, want db-test", e.Skill)
+	}
+	if e.Version != "2.0.0" {
+		t.Errorf("Version = %q, want 2.0.0", e.Version)
+	}
+	if e.Target != "claude" {
+		t.Errorf("Target = %q, want claude", e.Target)
+	}
+	if e.Registry != "" {
+		t.Errorf("Registry = %q, want empty for local install", e.Registry)
+	}
+	if e.InstalledWith != "" {
+		t.Errorf("InstalledWith = %q, want empty (root install)", e.InstalledWith)
+	}
+	if e.Status != "ok" {
+		t.Errorf("Status = %q, want ok", e.Status)
+	}
+}
+
+func TestInstall_LocalDir_MultipleFiles(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "multi-file", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md":          "# Main",
+		"lib/helper.md":     "# Helper",
+		"prompts/system.md": "# System Prompt",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	cacheDir := installer.CacheDir("multi-file", "1.0.0")
+	for _, f := range []string{"SKILL.md", "lib/helper.md", "prompts/system.md"} {
+		if _, err := os.Stat(filepath.Join(cacheDir, filepath.FromSlash(f))); err != nil {
+			t.Errorf("%s missing from cache: %v", f, err)
+		}
+	}
+
+	targetDir := filepath.Join(home, ".cursor", "skills", "multi-file")
+	for _, f := range []string{"SKILL.md", "lib/helper.md", "prompts/system.md"} {
+		if _, err := os.Stat(filepath.Join(targetDir, filepath.FromSlash(f))); err != nil {
+			t.Errorf("%s missing from target: %v", f, err)
+		}
+	}
+}
+
+func TestInstall_LocalDir_ProjectPath(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "proj-skill", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# Project",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "--project", projectDir, skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	installed := filepath.Join(projectDir, ".cursor", "skills", "proj-skill")
+	if _, err := os.Stat(filepath.Join(installed, "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md not installed to project path: %v", err)
+	}
+}
+
+func TestInstall_LocalDir_AlwaysCopiesFresh(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalSkill(t, skillDir, "fresh-test", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# Version 1",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Version 2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root2 := NewRootCommand()
+	root2.SetOut(&strings.Builder{})
+	root2.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+
+	targetFile := filepath.Join(home, ".cursor", "skills", "fresh-test", "SKILL.md")
+	data, err := os.ReadFile(targetFile)
+	if err != nil {
+		t.Fatalf("read installed file: %v", err)
+	}
+	if !strings.Contains(string(data), "Version 2") {
+		t.Errorf("installed file should have updated content, got: %s", data)
 	}
 }

@@ -24,15 +24,15 @@ func newInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Pull and install a skill into AI coding agent skills directories",
-		Long:    "Resolves the skill artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install.",
-		Example: "  striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0",
+		Long:    "Resolves the skill artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
+		Example: "  striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0\n  striatum skill install --target cursor .",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
 				return runReinstallAll(cmd)
 			}
 			if len(args) == 0 {
-				return fmt.Errorf("install requires a reference (e.g. host/repo/name:tag or oci:/path:tag)")
+				return fmt.Errorf("install requires a reference (e.g. host/repo/name:tag, oci:/path:tag, or local directory path)")
 			}
 			reference := args[0]
 			target = strings.TrimSpace(target)
@@ -157,7 +157,24 @@ func refToCacheCandidate(reference string) (name, version string, ok bool) {
 	return name, tag, true
 }
 
+func isLocalDirRef(reference string) bool {
+	abs, err := filepath.Abs(reference)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(abs)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(abs, "artifact.json"))
+	return err == nil
+}
+
 func runInstall(cmd *cobra.Command, reference, target, projectPath string, force bool) error {
+	if isLocalDirRef(reference) {
+		return runLocalInstall(cmd, reference, target, projectPath, force)
+	}
+
 	ctx := cmd.Context()
 	var targetObj oras.ReadOnlyTarget
 	var ref string
@@ -205,7 +222,126 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		return err
 	}
 
-	// Normalize project path early for conflict detection
+	rootSourceRef := reference
+	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
+	if isShortRef {
+		rootSourceRef = ""
+	}
+	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, rootSourceRef, force)
+}
+
+func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, force bool) error {
+	absPath, err := filepath.Abs(reference)
+	if err != nil {
+		return fmt.Errorf("resolve local path %q: %w", reference, err)
+	}
+
+	rootManifest, err := artifact.Load(filepath.Join(absPath, "artifact.json"))
+	if err != nil {
+		return fmt.Errorf("load manifest: %w", err)
+	}
+	if err := artifact.Validate(rootManifest); err != nil {
+		return fmt.Errorf("invalid manifest: %w", err)
+	}
+	if err := artifact.ValidateLocal(rootManifest, absPath); err != nil {
+		return fmt.Errorf("validate local files: %w", err)
+	}
+
+	ctx := cmd.Context()
+	var resolved []resolver.ResolvedArtifact
+	if len(rootManifest.Dependencies) == 0 {
+		resolved = []resolver.ResolvedArtifact{{
+			Name:     rootManifest.Metadata.Name,
+			Version:  rootManifest.Metadata.Version,
+			Manifest: rootManifest,
+		}}
+	} else {
+		fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
+		resolved, err = resolver.Resolve(ctx, rootManifest, fetcher)
+		if err != nil {
+			return fmt.Errorf("resolving dependencies: %w", err)
+		}
+	}
+
+	cacheDir := installer.CacheDir(rootManifest.Metadata.Name, rootManifest.Metadata.Version)
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return fmt.Errorf("clean cache dir: %w", err)
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	if err := copyLocalToCache(absPath, cacheDir, rootManifest.Spec.Files); err != nil {
+		return fmt.Errorf("cache local skill: %w", err)
+	}
+
+	if len(resolved) > 1 {
+		cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
+		for _, r := range resolved[1:] {
+			res := r
+			depCacheDir := installer.CacheDir(res.Name, res.Version)
+
+			var digestFn installer.DigestFunc
+			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
+				capturedDep := ociDep
+				digestFn = func(ctx context.Context) (string, error) {
+					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
+					reg, err := oci.NewRepository(repoPath)
+					if err != nil {
+						return "", err
+					}
+					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
+				}
+			}
+
+			pullFn := func(ctx context.Context, _ string) error {
+				if err := pullDependency(ctx, res.Dependency, cacheRoot); err != nil {
+					return err
+				}
+				created := filepath.Join(cacheRoot, res.Name)
+				return atomicReplaceCacheDir(created, depCacheDir)
+			}
+			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, digestFn); err != nil {
+				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
+			}
+		}
+	}
+
+	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, "", force)
+}
+
+func copyLocalToCache(srcDir, cacheDir string, files []string) error {
+	data, err := os.ReadFile(filepath.Join(srcDir, "artifact.json"))
+	if err != nil {
+		return fmt.Errorf("read artifact.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o644); err != nil {
+		return fmt.Errorf("write artifact.json: %w", err)
+	}
+
+	for _, f := range files {
+		src := filepath.Join(srcDir, filepath.FromSlash(f))
+		dst := filepath.Join(cacheDir, filepath.FromSlash(f))
+		if dir := filepath.Dir(dst); dir != cacheDir {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create dir for %s: %w", f, err)
+			}
+		}
+		srcData, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", f, err)
+		}
+		info, err := os.Stat(src)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", f, err)
+		}
+		if err := os.WriteFile(dst, srcData, info.Mode()); err != nil {
+			return fmt.Errorf("write %s: %w", f, err)
+		}
+	}
+	return nil
+}
+
+func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedArtifact, rootManifest *artifact.Manifest, target, projectPath, rootSourceRef string, force bool) error {
 	normProject := ""
 	if projectPath != "" {
 		abs, err := filepath.Abs(projectPath)
@@ -234,8 +370,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		return fmt.Errorf("resolve target dir: %w", err)
 	}
 	for _, r := range resolved {
-		cacheDir := installer.CacheDir(r.Name, r.Version)
-		if err := installer.InstallToTarget(cacheDir, targetDir, r.Name); err != nil {
+		cd := installer.CacheDir(r.Name, r.Version)
+		if err := installer.InstallToTarget(cd, targetDir, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
 		}
 	}
@@ -248,7 +384,6 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		key := e.Skill + "|" + e.Target + "|" + e.ProjectPath
 		byKey[key] = e
 	}
-	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
 	for _, r := range resolved {
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {
@@ -256,14 +391,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 		reg := sourceRefForDB(r.Dependency)
 		if installedWith == "" {
-			// Root artifact: store the original CLI reference (not a CanonicalRef)
-			// so reinstall-all can re-pull using the same string the user supplied.
-			// Short refs have no pullable source, so we store "" to force re-install.
-			if isShortRef {
-				reg = ""
-			} else {
-				reg = reference
-			}
+			reg = rootSourceRef
 		}
 		key := r.Name + "|" + target + "|" + normProject
 		if prev, ok := byKey[key]; ok && installedWith != "" {
