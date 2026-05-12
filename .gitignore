@@ -16,6 +16,9 @@ coverage.html
 # directory named build/, use git add -f or a negated pattern under that path.
 build/
 
+# GoReleaser
+dist/
+
 # User cache / config (pull, skill install)
 .striatum/
 
