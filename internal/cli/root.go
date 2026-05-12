@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.0"
+var version = "dev"
 
 // NewRootCommand returns the root cobra command for the striatum CLI.
 func NewRootCommand() *cobra.Command {

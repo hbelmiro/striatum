@@ -1,0 +1,61 @@
+version: 2
+
+project_name: striatum
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: striatum
+    main: ./cmd/striatum
+    binary: striatum
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/hbelmiro/striatum/internal/cli.version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+brews:
+  - name: striatum
+    repository:
+      owner: hbelmiro
+      name: striatum
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: HomebrewFormula
+    commit_author:
+      name: goreleaser
+      email: goreleaser@users.noreply.github.com
+    commit_msg_template: "chore(brew): update {{ .ProjectName }} formula to {{ .Tag }}"
+    homepage: "https://github.com/hbelmiro/striatum"
+    description: "OCI-native CLI for packaging and distributing AI artifacts"
+    license: "Apache-2.0"
+    install: |
+      bin.install "striatum"
+    test: |
+      system "#{bin}/striatum", "--version"

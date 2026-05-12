@@ -2,6 +2,25 @@
 
 OCI-native CLI and library for packaging, versioning, and distributing AI artifacts (skills, prompts, RAG configs) using standard OCI-compliant registries.
 
+## Install
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap hbelmiro/striatum https://github.com/hbelmiro/striatum
+brew install striatum
+```
+
+### Binary releases
+
+Download the latest binary from [GitHub Releases](https://github.com/hbelmiro/striatum/releases).
+
+### From source
+
+```bash
+go install github.com/hbelmiro/striatum/cmd/striatum@latest
+```
+
 ## Build
 
 ```bash
@@ -57,6 +76,22 @@ striatum skill list --installed --target cursor
 ```
 
 See [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
+
+## Releasing
+
+Releases are automated with [GoReleaser](https://goreleaser.com/) via GitHub Actions.
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+This triggers the release workflow, which:
+
+1. Runs tests
+2. Builds binaries for macOS and Linux (amd64 + arm64)
+3. Creates a GitHub Release with archives and checksums
+4. Commits an updated Homebrew formula to `HomebrewFormula/`
 
 ## License
 
