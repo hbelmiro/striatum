@@ -1172,6 +1172,48 @@ func TestInstall_LocalDir_SymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestInstall_LocalDir_PartialCopyCleanup(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Create a spec file that passes ValidateLocal (os.Stat succeeds for dirs)
+	// but fails during copyLocalToCache (os.ReadFile fails on a directory).
+	if err := os.MkdirAll(filepath.Join(skillDir, "bad-file.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "partial-copy", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "bad-file.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# OK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error for unreadable spec file during copy")
+	}
+
+	cacheDir := installer.CacheDir("partial-copy", "1.0.0")
+	if _, statErr := os.Stat(cacheDir); !os.IsNotExist(statErr) {
+		t.Errorf("cache dir should be removed after partial copy failure, stat err: %v", statErr)
+	}
+}
+
 func TestInstall_LocalDir_DirWithoutManifest(t *testing.T) {
 	emptyDir := t.TempDir()
 	home := t.TempDir()

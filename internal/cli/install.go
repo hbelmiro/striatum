@@ -283,6 +283,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 	if err := copyLocalToCache(absPath, cacheDir, rootManifest.Spec.Files); err != nil {
+		_ = os.RemoveAll(cacheDir)
 		return fmt.Errorf("cache local skill: %w", err)
 	}
 
