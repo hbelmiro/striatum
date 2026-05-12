@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1170,14 +1172,53 @@ func TestInstall_LocalDir_SymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestInstall_LocalDir_DirWithoutManifest(t *testing.T) {
+	emptyDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", emptyDir})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for directory without artifact.json")
+	}
+	if !strings.Contains(err.Error(), "artifact.json") {
+		t.Errorf("error should mention artifact.json, got: %v", err)
+	}
+}
+
 func TestInstall_LocalDir_WithDeps(t *testing.T) {
 	home := t.TempDir()
 	skillDir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
+	const depDigest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
 	depName := "dep-a"
 	depVersion := "1.0.0"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "512")
+			w.Header().Set("Docker-Content-Digest", depDigest)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	dockerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte(`{"auths":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
 	rootManifest := &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "Skill",
@@ -1185,7 +1226,7 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		Dependencies: []artifact.Dependency{
 			&artifact.OCIDependency{
-				RegistryHost: "localhost:5000",
+				RegistryHost: srvHost,
 				Repository:   depName,
 				Tag:          depVersion,
 			},
@@ -1220,6 +1261,9 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(depCacheDir, "SKILL.md"), []byte("# Dep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.WriteDigest(depCacheDir, depDigest); err != nil {
 		t.Fatal(err)
 	}
 

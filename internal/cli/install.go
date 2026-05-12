@@ -25,7 +25,7 @@ func newInstallCmd() *cobra.Command {
 		Use:     "install",
 		Short:   "Pull and install a skill into AI coding agent skills directories",
 		Long:    "Resolves the skill artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
-		Example: "  striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0\n  striatum skill install --target cursor .",
+		Example: "  striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0\n  striatum skill install --target cursor oci:/path/to/layout:my-skill:1.0.0\n  striatum skill install --target cursor .",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
@@ -174,6 +174,11 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	if isLocalDirRef(reference) {
 		return runLocalInstall(cmd, reference, target, projectPath, force)
 	}
+	if abs, err := filepath.Abs(reference); err == nil {
+		if info, err := os.Stat(abs); err == nil && info.IsDir() {
+			return fmt.Errorf("directory %q exists but does not contain artifact.json", reference)
+		}
+	}
 
 	ctx := cmd.Context()
 	var targetObj oras.ReadOnlyTarget
@@ -293,7 +298,19 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 				created := filepath.Join(cacheRoot, res.Name)
 				return atomicReplaceCacheDir(created, depCacheDir)
 			}
-			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, nil); err != nil {
+			var digestFn installer.DigestFunc
+			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
+				capturedDep := ociDep
+				digestFn = func(ctx context.Context) (string, error) {
+					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
+					reg, err := oci.NewRepository(repoPath)
+					if err != nil {
+						return "", err
+					}
+					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
+				}
+			}
+			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, digestFn); err != nil {
 				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 			}
 		}
