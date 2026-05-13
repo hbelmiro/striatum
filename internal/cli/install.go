@@ -339,7 +339,11 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 	if err != nil {
 		return fmt.Errorf("read artifact.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o644); err != nil {
+	manifestInfo, err := os.Stat(manifestSrc)
+	if err != nil {
+		return fmt.Errorf("stat artifact.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, manifestInfo.Mode()); err != nil {
 		return fmt.Errorf("write artifact.json: %w", err)
 	}
 
