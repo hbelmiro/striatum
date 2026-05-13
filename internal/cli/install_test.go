@@ -14,6 +14,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/resolver"
 )
 
 func TestInstall_MissingTargetErrors(t *testing.T) {
@@ -1062,6 +1063,41 @@ func TestInstall_LocalDir_AlwaysCopiesFresh(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "Version 2") {
 		t.Errorf("installed file should have updated content, got: %s", data)
+	}
+}
+
+func TestValidateResolvedPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		arts    []resolver.ResolvedArtifact
+		wantErr string
+	}{
+		{"safe", []resolver.ResolvedArtifact{{Name: "my-skill", Version: "1.0.0"}}, ""},
+		{"slash in name", []resolver.ResolvedArtifact{{Name: "a/b", Version: "1.0.0"}}, "unsafe"},
+		{"backslash in version", []resolver.ResolvedArtifact{{Name: "ok", Version: "1\\2"}}, "unsafe"},
+		{"dotdot in name", []resolver.ResolvedArtifact{{Name: "..", Version: "1.0.0"}}, "unsafe"},
+		{"dotdot in version", []resolver.ResolvedArtifact{{Name: "ok", Version: "../../x"}}, "unsafe"},
+		{"second artifact unsafe", []resolver.ResolvedArtifact{
+			{Name: "safe", Version: "1.0.0"},
+			{Name: "../evil", Version: "1.0.0"},
+		}, "unsafe"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateResolvedPaths(tt.arts)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 

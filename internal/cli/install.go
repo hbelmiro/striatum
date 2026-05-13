@@ -157,6 +157,16 @@ func refToCacheCandidate(reference string) (name, version string, ok bool) {
 	return name, tag, true
 }
 
+func validateResolvedPaths(resolved []resolver.ResolvedArtifact) error {
+	for _, r := range resolved {
+		if strings.ContainsAny(r.Name, "/\\") || strings.Contains(r.Name, "..") ||
+			strings.ContainsAny(r.Version, "/\\") || strings.Contains(r.Version, "..") {
+			return fmt.Errorf("unsafe artifact name or version %q / %q: must not contain path separators or '..'", r.Name, r.Version)
+		}
+	}
+	return nil
+}
+
 func isLocalDirRef(reference string) bool {
 	abs, err := filepath.Abs(reference)
 	if err != nil {
@@ -223,6 +233,9 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 	}
 
+	if err := validateResolvedPaths(resolved); err != nil {
+		return err
+	}
 	if err := ensureArtifactsInCache(ctx, reference, targetObj, ref, resolved); err != nil {
 		return err
 	}
@@ -254,10 +267,6 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 
 	name := rootManifest.Metadata.Name
 	version := rootManifest.Metadata.Version
-	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
-		strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
-		return fmt.Errorf("unsafe metadata.name or metadata.version: must not contain path separators or '..'")
-	}
 
 	ctx := cmd.Context()
 	var resolved []resolver.ResolvedArtifact
@@ -273,6 +282,10 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		if err != nil {
 			return fmt.Errorf("resolving dependencies: %w", err)
 		}
+	}
+
+	if err := validateResolvedPaths(resolved); err != nil {
+		return err
 	}
 
 	cacheDir := installer.CacheDir(name, version)
