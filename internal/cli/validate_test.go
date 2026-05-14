@@ -112,6 +112,7 @@ func TestValidate_CheckDepsNoDeps_Succeeds(t *testing.T) {
 
 func TestValidate_CheckDepsWithDeps_FailsOnUnreachable(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", t.TempDir())
 	manifest := `{
   "apiVersion": "striatum.dev/v1alpha2",
   "kind": "Skill",
@@ -137,6 +138,41 @@ func TestValidate_CheckDepsWithDeps_FailsOnUnreachable(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "resolving dependencies") {
 		t.Errorf("error should mention resolving dependencies: %v", err)
+	}
+}
+
+func TestValidate_CheckDeps_UsesCacheFirst(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", t.TempDir())
+	setupCachedManifest(t, "dep", "1.0.0")
+
+	manifest := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "x", "version": "1.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]},
+  "dependencies": [
+    {"source": "oci", "registry": "localhost:9999", "repository": "dep", "tag": "1.0.0"}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"validate", "--check-deps"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate --check-deps with cached dep: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "All dependencies resolved") {
+		t.Errorf("output %q does not contain All dependencies resolved", got)
 	}
 }
 
