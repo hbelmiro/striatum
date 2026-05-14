@@ -39,7 +39,7 @@ func newValidateCmd() *cobra.Command {
 
 			if checkDeps {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Resolving dependency tree...")
-				fetcher := NewRemoteFetcher()
+				fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
 				resolved, err := resolver.Resolve(cmd.Context(), m, fetcher)
 				if err != nil {
 					return fmt.Errorf("resolving dependencies: %w", err)
