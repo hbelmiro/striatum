@@ -306,10 +306,14 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 			res := r
 			depCacheDir := installer.CacheDir(res.Name, res.Version)
 			pullFn := func(ctx context.Context, _ string) error {
-				if err := pullDependency(ctx, res.Dependency, cacheRoot); err != nil {
+				created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
+					return pullDependency(ctx, res.Dependency, stagingDir)
+				})
+				if err != nil {
+					cleanup()
 					return err
 				}
-				created := filepath.Join(cacheRoot, res.Name)
+				defer cleanup()
 				return atomicReplaceCacheDir(created, depCacheDir)
 			}
 			var digestFn installer.DigestFunc
@@ -510,13 +514,14 @@ func repullToCache(ctx context.Context, sourceRef, cacheDir, name string) error 
 		return fmt.Errorf("parse reference %q: %w", sourceRef, err)
 	}
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
-		return fmt.Errorf("create cache root: %w", err)
-	}
-	if err := defaultRouter().Pull(ctx, loc, cacheRoot); err != nil {
+	created, cleanup, err := pullToStagingDir(cacheRoot, name, func(stagingDir string) error {
+		return defaultRouter().Pull(ctx, loc, stagingDir)
+	})
+	if err != nil {
+		cleanup()
 		return fmt.Errorf("pull artifact %q: %w", sourceRef, err)
 	}
-	created := filepath.Join(cacheRoot, name)
+	defer cleanup()
 	if _, err := os.Stat(created); err != nil {
 		return fmt.Errorf("expected artifact directory %q after pull (artifact metadata.name may differ from installed name %q): %w", created, name, err)
 	}
@@ -583,25 +588,32 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 		}
 
 		pullFn := func(ctx context.Context, _ string) error {
-			if idx == 0 {
-				pullTarget := rootTarget
-				pullRef := rootRef
-				if pullTarget == nil {
-					resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
-					if err != nil {
-						return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+			created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
+				if idx == 0 {
+					pullTarget := rootTarget
+					pullRef := rootRef
+					if pullTarget == nil {
+						resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+						if err != nil {
+							return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+						}
+						pullTarget, pullRef = resolvedTarget, resolvedRef
 					}
-					pullTarget, pullRef = resolvedTarget, resolvedRef
+					if err := oci.Pull(ctx, pullTarget, pullRef, stagingDir); err != nil {
+						return fmt.Errorf("download OCI artifact: %w", err)
+					}
+				} else {
+					if err := pullDependency(ctx, res.Dependency, stagingDir); err != nil {
+						return err
+					}
 				}
-				if err := oci.Pull(ctx, pullTarget, pullRef, cacheRoot); err != nil {
-					return fmt.Errorf("download OCI artifact: %w", err)
-				}
-			} else {
-				if err := pullDependency(ctx, res.Dependency, cacheRoot); err != nil {
-					return err
-				}
+				return nil
+			})
+			if err != nil {
+				cleanup()
+				return err
 			}
-			created := filepath.Join(cacheRoot, res.Name)
+			defer cleanup()
 			if err := atomicReplaceCacheDir(created, cacheDir); err != nil {
 				return fmt.Errorf("finalize cache directory: %w", err)
 			}
@@ -620,6 +632,24 @@ func pullDependency(ctx context.Context, dep artifact.Dependency, outputDir stri
 		return fmt.Errorf("nil dependency")
 	}
 	return defaultRouter().Pull(ctx, dep, outputDir)
+}
+
+// pullToStagingDir creates a unique temporary directory under parentDir,
+// calls pullFn with it, and returns the path to the artifact subdirectory
+// (tmpDir/<artifactName>). The caller MUST call cleanup when done.
+func pullToStagingDir(parentDir, artifactName string, pullFn func(stagingDir string) error) (artifactDir string, cleanup func(), err error) {
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return "", func() {}, fmt.Errorf("create parent dir: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp(parentDir, ".staging-"+artifactName+"-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create staging dir: %w", err)
+	}
+	cleanupFn := func() { _ = os.RemoveAll(tmpDir) }
+	if err := pullFn(tmpDir); err != nil {
+		return "", cleanupFn, err
+	}
+	return filepath.Join(tmpDir, artifactName), cleanupFn, nil
 }
 
 // atomicReplaceCacheDir moves created (fresh pull) to cacheDir, removing cacheDir first if it exists

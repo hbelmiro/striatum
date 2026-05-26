@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1371,5 +1372,197 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 	}
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 DB entries, got %d", len(entries))
+	}
+}
+
+func TestPullToStagingDir_CreatesIsolatedDir(t *testing.T) {
+	parentDir := t.TempDir()
+
+	var capturedStagingDir string
+	artifactDir, cleanup, err := pullToStagingDir(parentDir, "my-artifact", func(stagingDir string) error {
+		capturedStagingDir = stagingDir
+
+		if !strings.HasPrefix(filepath.Base(stagingDir), ".staging-my-artifact-") {
+			t.Errorf("staging dir name should start with .staging-my-artifact-, got %q", filepath.Base(stagingDir))
+		}
+
+		rel, relErr := filepath.Rel(parentDir, stagingDir)
+		if relErr != nil || strings.HasPrefix(rel, "..") {
+			t.Errorf("staging dir should be under parentDir, got %q", stagingDir)
+		}
+
+		entries, readErr := os.ReadDir(stagingDir)
+		if readErr != nil {
+			t.Fatalf("read staging dir: %v", readErr)
+		}
+		if len(entries) != 0 {
+			t.Errorf("staging dir should start empty, got %d entries", len(entries))
+		}
+
+		if err := os.MkdirAll(filepath.Join(stagingDir, "my-artifact"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return os.WriteFile(filepath.Join(stagingDir, "my-artifact", "test.txt"), []byte("data"), 0o600)
+	})
+	if err != nil {
+		t.Fatalf("pullToStagingDir: %v", err)
+	}
+	defer cleanup()
+
+	expectedArtifactDir := filepath.Join(capturedStagingDir, "my-artifact")
+	if artifactDir != expectedArtifactDir {
+		t.Errorf("artifactDir = %q, want %q", artifactDir, expectedArtifactDir)
+	}
+	if _, err := os.Stat(filepath.Join(artifactDir, "test.txt")); err != nil {
+		t.Errorf("test.txt should exist in artifactDir: %v", err)
+	}
+}
+
+func TestPullToStagingDir_CleanupRemovesTempDir(t *testing.T) {
+	parentDir := t.TempDir()
+
+	var capturedStagingDir string
+	_, cleanup, err := pullToStagingDir(parentDir, "cleanup-test", func(stagingDir string) error {
+		capturedStagingDir = stagingDir
+		return os.MkdirAll(filepath.Join(stagingDir, "cleanup-test"), 0o755)
+	})
+	if err != nil {
+		t.Fatalf("pullToStagingDir: %v", err)
+	}
+
+	cleanup()
+
+	if _, err := os.Stat(capturedStagingDir); !os.IsNotExist(err) {
+		t.Errorf("staging dir should be removed after cleanup, stat err = %v", err)
+	}
+}
+
+func TestPullToStagingDir_CleanupOnPullFailure(t *testing.T) {
+	parentDir := t.TempDir()
+
+	_, cleanup, err := pullToStagingDir(parentDir, "fail-test", func(stagingDir string) error {
+		if err := os.WriteFile(filepath.Join(stagingDir, "partial.txt"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Errorf("simulated pull failure")
+	})
+	if err == nil {
+		t.Fatal("expected error from failing pullFn")
+	}
+	if !strings.Contains(err.Error(), "simulated pull failure") {
+		t.Errorf("error should propagate: %v", err)
+	}
+
+	cleanup()
+
+	entries, readErr := os.ReadDir(parentDir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".staging-") {
+			t.Errorf("leftover staging dir after cleanup: %s", e.Name())
+		}
+	}
+}
+
+func TestPullToStagingDir_StaleFilesNotCarriedForward(t *testing.T) {
+	parentDir := t.TempDir()
+
+	staleDir := filepath.Join(parentDir, "my-artifact")
+	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staleDir, "stale.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	artifactDir, cleanup, err := pullToStagingDir(parentDir, "my-artifact", func(stagingDir string) error {
+		dest := filepath.Join(stagingDir, "my-artifact")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dest, "fresh.txt"), []byte("new"), 0o600)
+	})
+	if err != nil {
+		t.Fatalf("pullToStagingDir: %v", err)
+	}
+	defer cleanup()
+
+	if _, err := os.Stat(filepath.Join(artifactDir, "fresh.txt")); err != nil {
+		t.Errorf("fresh.txt should exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(artifactDir, "stale.txt")); !os.IsNotExist(err) {
+		t.Errorf("stale.txt should NOT exist in staging dir, stat err = %v", err)
+	}
+}
+
+func TestPullToStagingDir_CreatesParentDirIfMissing(t *testing.T) {
+	parentDir := filepath.Join(t.TempDir(), "nested", "cache")
+
+	artifactDir, cleanup, err := pullToStagingDir(parentDir, "new-dir-test", func(stagingDir string) error {
+		dest := filepath.Join(stagingDir, "new-dir-test")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dest, "file.txt"), []byte("ok"), 0o600)
+	})
+	if err != nil {
+		t.Fatalf("pullToStagingDir with missing parent: %v", err)
+	}
+	defer cleanup()
+
+	if _, err := os.Stat(filepath.Join(artifactDir, "file.txt")); err != nil {
+		t.Errorf("file.txt should exist: %v", err)
+	}
+}
+
+func TestPullToStagingDir_ConcurrentPullsGetSeparateDirs(t *testing.T) {
+	parentDir := t.TempDir()
+
+	type result struct {
+		artifactDir string
+		cleanup     func()
+		err         error
+	}
+
+	ch := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		marker := fmt.Sprintf("marker-%d", i)
+		go func() {
+			ad, cl, err := pullToStagingDir(parentDir, "concurrent", func(stagingDir string) error {
+				dest := filepath.Join(stagingDir, "concurrent")
+				if err := os.MkdirAll(dest, 0o755); err != nil {
+					return err
+				}
+				return os.WriteFile(filepath.Join(dest, marker+".txt"), []byte(marker), 0o600)
+			})
+			ch <- result{ad, cl, err}
+		}()
+	}
+
+	var results []result
+	for i := 0; i < 2; i++ {
+		results = append(results, <-ch)
+	}
+	for _, r := range results {
+		if r.err != nil {
+			t.Fatalf("concurrent pullToStagingDir failed: %v", r.err)
+		}
+		defer r.cleanup()
+	}
+
+	if results[0].artifactDir == results[1].artifactDir {
+		t.Error("concurrent pulls should use different staging directories")
+	}
+
+	for i, r := range results {
+		entries, err := os.ReadDir(r.artifactDir)
+		if err != nil {
+			t.Fatalf("read artifactDir %d: %v", i, err)
+		}
+		if len(entries) != 1 {
+			t.Errorf("artifactDir %d should have exactly 1 file, got %d", i, len(entries))
+		}
 	}
 }

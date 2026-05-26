@@ -77,6 +77,9 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 
 			if noCache {
 				for i, r := range resolved {
+					if err := os.RemoveAll(filepath.Join(outputDir, r.Name)); err != nil {
+						return fmt.Errorf("clean output dir for %s: %w", r.Name, err)
+					}
 					if i == 0 {
 						if err := oci.Pull(ctx, target, ref, outputDir); err != nil {
 							return fmt.Errorf("pull %s@%s: %w", r.Name, r.Version, err)
