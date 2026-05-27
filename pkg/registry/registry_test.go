@@ -191,6 +191,10 @@ func TestParseReference_Errors(t *testing.T) {
 		{"oci empty tag", "oci:./build:", "empty tag"},
 		{"empty repo (trailing slash)", "host/:1.0.0", "empty host or repository"},
 		{"empty host (leading slash)", "/repo:1.0.0", "empty host or repository"},
+		{"oci trailing @ empty digest", "reg.io/skills/a:1.0.0@", "empty digest"},
+		{"git trailing ! empty commit", "git:https://example.com/repo.git@main!", "empty commit"},
+		{"git trailing ! empty commit with path", "git:https://example.com/repo.git@main#sub!", "empty commit"},
+		{"git wrong ! ordering before #", "git:https://example.com/repo.git@main!abc123#sub", "commit delimiter"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

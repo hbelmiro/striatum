@@ -90,7 +90,7 @@ After this, both helpers are available in the registry at `localhost:5050/demo/e
 
 Each OCI dependency declares its `registry`, `repository`, and `tag`. Striatum resolves them transitively at pull time.
 
-To pin a dependency to a specific immutable version, add an optional `digest` field (OCI) or `commit` field (Git). When present, Striatum uses these values for cache freshness checks and deduplication, so two installs of the same manifest always resolve to the same content:
+To record the exact version a dependency was resolved from, add an optional `digest` field (OCI) or `commit` field (Git). These fields are included in the canonical reference and persisted in the manifest, making it possible to tell whether two manifests point to the same content:
 
 ```json
 {

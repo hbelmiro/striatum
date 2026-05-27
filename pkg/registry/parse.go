@@ -61,6 +61,12 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	if strings.TrimSpace(gitRef) == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty ref", ref)
 	}
+	if strings.Contains(gitRef, "!") {
+		return nil, fmt.Errorf("invalid git reference %q: commit delimiter '!' must appear after ref (and optional #path), not before '#'", ref)
+	}
+	if commit == "" && strings.ContainsRune(refAndPath, '!') {
+		return nil, fmt.Errorf("invalid git reference %q: empty commit after '!'", ref)
+	}
 	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path, Commit: commit}, nil
 }
 
@@ -90,6 +96,9 @@ func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 	digest := ""
 	if atIdx := strings.Index(ref, "@"); atIdx >= 0 {
 		digest = ref[atIdx+1:]
+		if digest == "" {
+			return nil, fmt.Errorf("invalid reference %q: empty digest after @", ref)
+		}
 		ref = ref[:atIdx]
 	}
 
