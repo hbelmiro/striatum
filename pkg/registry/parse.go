@@ -10,10 +10,13 @@ import (
 // ParseReference parses a CLI reference string into a Locator.
 //
 // Supported formats:
-//   - "host/repo/name:tag"       -> *artifact.OCIDependency
-//   - "oci:path:tag"             -> *OCILayoutLocator
-//   - "git:URL@ref"              -> *artifact.GitDependency
-//   - "git:URL@ref#path"         -> *artifact.GitDependency (with sub-path)
+//   - "host/repo/name:tag"              -> *artifact.OCIDependency
+//   - "host/repo/name:tag@digest"       -> *artifact.OCIDependency (with digest)
+//   - "oci:path:tag"                    -> *OCILayoutLocator
+//   - "git:URL@ref"                     -> *artifact.GitDependency
+//   - "git:URL@ref#path"               -> *artifact.GitDependency (with sub-path)
+//   - "git:URL@ref!commit"             -> *artifact.GitDependency (with commit)
+//   - "git:URL@ref#path!commit"        -> *artifact.GitDependency (with sub-path and commit)
 func ParseReference(ref string) (Locator, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -39,9 +42,17 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 
 	gitRef := refAndPath
 	path := ""
+	commit := ""
 	if hashIdx := strings.Index(refAndPath, "#"); hashIdx >= 0 {
 		gitRef = refAndPath[:hashIdx]
 		path = refAndPath[hashIdx+1:]
+		if bangIdx := strings.Index(path, "!"); bangIdx >= 0 {
+			commit = path[bangIdx+1:]
+			path = path[:bangIdx]
+		}
+	} else if bangIdx := strings.Index(refAndPath, "!"); bangIdx >= 0 {
+		gitRef = refAndPath[:bangIdx]
+		commit = refAndPath[bangIdx+1:]
 	}
 
 	if strings.TrimSpace(url) == "" {
@@ -50,7 +61,7 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	if strings.TrimSpace(gitRef) == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty ref", ref)
 	}
-	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path}, nil
+	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path, Commit: commit}, nil
 }
 
 func parseOCILayoutReference(ref string) (*OCILayoutLocator, error) {
@@ -76,12 +87,17 @@ func parseOCILayoutReference(ref string) (*OCILayoutLocator, error) {
 }
 
 func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
+	digest := ""
+	if atIdx := strings.Index(ref, "@"); atIdx >= 0 {
+		digest = ref[atIdx+1:]
+		ref = ref[:atIdx]
+	}
+
 	lastSlash := strings.LastIndex(ref, "/")
 	if lastSlash < 0 {
 		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", ref)
 	}
 
-	// Tag colon must come after the last slash to avoid confusing host:port with tag.
 	tagColon := strings.LastIndex(ref[lastSlash:], ":")
 	if tagColon < 0 {
 		return nil, fmt.Errorf("invalid reference %q: missing tag", ref)
@@ -110,5 +126,6 @@ func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 		RegistryHost: host,
 		Repository:   repository,
 		Tag:          tag,
+		Digest:       digest,
 	}, nil
 }

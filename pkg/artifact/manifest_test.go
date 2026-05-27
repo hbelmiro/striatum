@@ -64,11 +64,11 @@ func TestOCIDependency_Validate(t *testing.T) {
 		dep     *OCIDependency
 		wantErr string
 	}{
-		{"valid", &OCIDependency{"localhost:5000", "skills/base", "1.0.0"}, ""},
-		{"missing registry", &OCIDependency{"", "skills/base", "1.0.0"}, "registry"},
-		{"whitespace registry", &OCIDependency{"  ", "skills/base", "1.0.0"}, "registry"},
-		{"missing repository", &OCIDependency{"localhost:5000", "", "1.0.0"}, "repository"},
-		{"missing tag", &OCIDependency{"localhost:5000", "skills/base", ""}, "tag"},
+		{"valid", &OCIDependency{RegistryHost: "localhost:5000", Repository: "skills/base", Tag: "1.0.0"}, ""},
+		{"missing registry", &OCIDependency{RegistryHost: "", Repository: "skills/base", Tag: "1.0.0"}, "registry"},
+		{"whitespace registry", &OCIDependency{RegistryHost: "  ", Repository: "skills/base", Tag: "1.0.0"}, "registry"},
+		{"missing repository", &OCIDependency{RegistryHost: "localhost:5000", Repository: "", Tag: "1.0.0"}, "repository"},
+		{"missing tag", &OCIDependency{RegistryHost: "localhost:5000", Repository: "skills/base", Tag: ""}, "tag"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -659,6 +659,285 @@ func TestValidate_DependencyValidationDelegated(t *testing.T) {
 }
 
 // --- ValidateLocal tests ---
+
+// --- Immutable pinning tests (issue #46) ---
+
+func TestOCIDependency_Digest_CanonicalRef(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  *OCIDependency
+		want string
+	}{
+		{
+			name: "without digest",
+			dep:  &OCIDependency{RegistryHost: "reg.io", Repository: "skills/a", Tag: "1.0.0"},
+			want: "reg.io/skills/a:1.0.0",
+		},
+		{
+			name: "with digest",
+			dep:  &OCIDependency{RegistryHost: "reg.io", Repository: "skills/a", Tag: "1.0.0", Digest: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"},
+			want: "reg.io/skills/a:1.0.0@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.dep.CanonicalRef(); got != tt.want {
+				t.Errorf("CanonicalRef() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Commit_CanonicalRef(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  *GitDependency
+		want string
+	}{
+		{
+			name: "without commit",
+			dep:  &GitDependency{URL: "https://example.com/repo.git", Ref: "main"},
+			want: "git:https://example.com/repo.git@main",
+		},
+		{
+			name: "with commit no path",
+			dep:  &GitDependency{URL: "https://example.com/repo.git", Ref: "main", Commit: "abcdef0123456789abcdef0123456789abcdef01"},
+			want: "git:https://example.com/repo.git@main!abcdef0123456789abcdef0123456789abcdef01",
+		},
+		{
+			name: "with commit and path",
+			dep:  &GitDependency{URL: "https://example.com/repo.git", Ref: "v1.0.0", Path: "sub", Commit: "abcdef0123456789abcdef0123456789abcdef01"},
+			want: "git:https://example.com/repo.git@v1.0.0#sub!abcdef0123456789abcdef0123456789abcdef01",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.dep.CanonicalRef(); got != tt.want {
+				t.Errorf("CanonicalRef() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOCIDependency_Validate_Digest(t *testing.T) {
+	validDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	tests := []struct {
+		name    string
+		dep     *OCIDependency
+		wantErr string
+	}{
+		{"valid without digest", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0"}, ""},
+		{"valid with digest", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: validDigest}, ""},
+		{"invalid digest prefix", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: "md5:abc123"}, "digest"},
+		{"invalid digest too short", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: "sha256:abc"}, "digest"},
+		{"invalid digest uppercase", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: "sha256:ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789"}, "digest"},
+		{"invalid digest too long", &OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567890"}, "digest"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Validate_Commit(t *testing.T) {
+	validCommit := "abcdef0123456789abcdef0123456789abcdef01"
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{"valid without commit", &GitDependency{URL: "https://example.com/r.git", Ref: "v1"}, ""},
+		{"valid with commit", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: validCommit}, ""},
+		{"invalid commit too short", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: "abc123"}, "commit"},
+		{"invalid commit uppercase", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: "ABCDEF0123456789ABCDEF0123456789ABCDEF01"}, "commit"},
+		{"invalid commit non-hex", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: "zzzzzz0123456789abcdef0123456789abcdef01"}, "commit"},
+		{"invalid commit too long", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: "abcdef0123456789abcdef0123456789abcdef012"}, "commit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestManifest_UnmarshalJSON_OCIDep_WithDigest(t *testing.T) {
+	data := `{
+		"apiVersion": "striatum.dev/v1alpha2",
+		"kind": "Skill",
+		"metadata": {"name": "x", "version": "1.0.0"},
+		"spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]},
+		"dependencies": [
+			{"source": "oci", "registry": "reg.io", "repository": "skills/a", "tag": "1.0.0", "digest": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}
+		]
+	}`
+	var m Manifest
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		t.Fatalf("UnmarshalJSON() err = %v", err)
+	}
+	d, ok := m.Dependencies[0].(*OCIDependency)
+	if !ok {
+		t.Fatalf("type = %T, want *OCIDependency", m.Dependencies[0])
+	}
+	if d.Digest != "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" {
+		t.Errorf("Digest = %q", d.Digest)
+	}
+}
+
+func TestManifest_UnmarshalJSON_GitDep_WithCommit(t *testing.T) {
+	data := `{
+		"apiVersion": "striatum.dev/v1alpha2",
+		"kind": "Skill",
+		"metadata": {"name": "x", "version": "1.0.0"},
+		"spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]},
+		"dependencies": [
+			{"source": "git", "url": "https://example.com/r.git", "ref": "v1.0.0", "commit": "abcdef0123456789abcdef0123456789abcdef01"}
+		]
+	}`
+	var m Manifest
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		t.Fatalf("UnmarshalJSON() err = %v", err)
+	}
+	d, ok := m.Dependencies[0].(*GitDependency)
+	if !ok {
+		t.Fatalf("type = %T, want *GitDependency", m.Dependencies[0])
+	}
+	if d.Commit != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Errorf("Commit = %q", d.Commit)
+	}
+}
+
+func TestManifest_Roundtrip_WithDigestAndCommit(t *testing.T) {
+	original := Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   Metadata{Name: "test", Version: "2.0.0"},
+		Spec:       Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []Dependency{
+			&OCIDependency{RegistryHost: "reg.io", Repository: "skills/a", Tag: "1.0.0", Digest: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"},
+			&GitDependency{URL: "https://gh.com/o/r.git", Ref: "v3.0.0", Path: "sub", Commit: "abcdef0123456789abcdef0123456789abcdef01"},
+		},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal err = %v", err)
+	}
+	var decoded Manifest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal err = %v", err)
+	}
+	if len(decoded.Dependencies) != 2 {
+		t.Fatalf("len(Dependencies) = %d, want 2", len(decoded.Dependencies))
+	}
+
+	ociDep, ok := decoded.Dependencies[0].(*OCIDependency)
+	if !ok {
+		t.Fatalf("dep[0] type = %T", decoded.Dependencies[0])
+	}
+	if ociDep.Digest != "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" {
+		t.Errorf("OCI Digest = %q", ociDep.Digest)
+	}
+
+	gitDep, ok := decoded.Dependencies[1].(*GitDependency)
+	if !ok {
+		t.Fatalf("dep[1] type = %T", decoded.Dependencies[1])
+	}
+	if gitDep.Commit != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Errorf("Git Commit = %q", gitDep.Commit)
+	}
+}
+
+func TestValidate_InvalidDigestBubblesUp(t *testing.T) {
+	m := &Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   Metadata{Name: "x", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []Dependency{
+			&OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "1.0.0", Digest: "bad"},
+		},
+	}
+	err := Validate(m)
+	if err == nil {
+		t.Fatal("Validate() err = nil, want error for invalid digest")
+	}
+	if !strings.Contains(err.Error(), "dependencies[0]") {
+		t.Errorf("error should mention index: %v", err)
+	}
+	if !strings.Contains(err.Error(), "digest") {
+		t.Errorf("error should mention digest: %v", err)
+	}
+}
+
+func TestValidate_InvalidCommitBubblesUp(t *testing.T) {
+	m := &Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   Metadata{Name: "x", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []Dependency{
+			&GitDependency{URL: "https://example.com/r.git", Ref: "v1", Commit: "bad"},
+		},
+	}
+	err := Validate(m)
+	if err == nil {
+		t.Fatal("Validate() err = nil, want error for invalid commit")
+	}
+	if !strings.Contains(err.Error(), "dependencies[0]") {
+		t.Errorf("error should mention index: %v", err)
+	}
+	if !strings.Contains(err.Error(), "commit") {
+		t.Errorf("error should mention commit: %v", err)
+	}
+}
+
+func TestManifest_MarshalJSON_OmitsEmptyDigestAndCommit(t *testing.T) {
+	m := Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   Metadata{Name: "x", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []Dependency{
+			&OCIDependency{RegistryHost: "reg", Repository: "repo", Tag: "v1"},
+			&GitDependency{URL: "https://example.com/r.git", Ref: "main"},
+		},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("MarshalJSON() err = %v", err)
+	}
+	s := string(data)
+	if strings.Contains(s, `"digest"`) {
+		t.Errorf("marshaled JSON should omit empty digest: %s", s)
+	}
+	if strings.Contains(s, `"commit"`) {
+		t.Errorf("marshaled JSON should omit empty commit: %s", s)
+	}
+}
 
 func TestValidateLocal_AllFilesExist(t *testing.T) {
 	dir := t.TempDir()
