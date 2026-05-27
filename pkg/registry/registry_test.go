@@ -200,6 +200,8 @@ func TestParseReference_Errors(t *testing.T) {
 		{"git empty path after #", "git:https://example.com/repo.git@main#", "empty path"},
 		{"git empty path with commit", "git:https://example.com/repo.git@main#!abcdef0123456789abcdef0123456789abcdef01", "empty path"},
 		{"oci whitespace-only digest", "reg.io/skills/a:1.0.0@   ", "empty digest"},
+		{"git leading space in commit", "git:https://example.com/repo.git@main! abc", "commit"},
+		{"oci leading space in digest", "reg.io/skills/a:1.0.0@ sha256:abc", "digest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

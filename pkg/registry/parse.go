@@ -67,8 +67,12 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	if strings.ContainsRune(refAndPath, '#') && strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty path after '#'", ref)
 	}
+	commit = strings.TrimSpace(commit)
 	if commit == "" && strings.ContainsRune(refAndPath, '!') {
 		return nil, fmt.Errorf("invalid git reference %q: empty commit after '!'", ref)
+	}
+	if commit != "" && !artifact.IsValidCommitSHA(commit) {
+		return nil, fmt.Errorf("invalid git reference %q: commit must be a 40-character lowercase hex SHA", ref)
 	}
 	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path, Commit: commit}, nil
 }
@@ -98,9 +102,12 @@ func parseOCILayoutReference(ref string) (*OCILayoutLocator, error) {
 func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 	digest := ""
 	if atIdx := strings.Index(ref, "@"); atIdx >= 0 {
-		digest = ref[atIdx+1:]
+		digest = strings.TrimSpace(ref[atIdx+1:])
 		if digest == "" {
 			return nil, fmt.Errorf("invalid reference %q: empty digest after @", ref)
+		}
+		if !artifact.IsValidDigest(digest) {
+			return nil, fmt.Errorf("invalid reference %q: digest must match sha256:<64 lowercase hex chars>", ref)
 		}
 		ref = ref[:atIdx]
 	}

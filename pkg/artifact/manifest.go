@@ -16,6 +16,9 @@ var (
 	commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+func IsValidDigest(s string) bool    { return digestPattern.MatchString(s) }
+func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
+
 const supportedAPIVersion = "striatum.dev/v1alpha2"
 
 var supportedKinds = map[string]bool{
@@ -73,7 +76,7 @@ func (d *OCIDependency) Validate() error {
 	if strings.TrimSpace(d.Tag) == "" {
 		return errors.New("oci dependency: tag is required")
 	}
-	if d.Digest != "" && !digestPattern.MatchString(d.Digest) {
+	if d.Digest != "" && !IsValidDigest(d.Digest) {
 		return fmt.Errorf("oci dependency: digest must match sha256:<64 lowercase hex chars>, got %q", d.Digest)
 	}
 	return nil
@@ -123,7 +126,7 @@ func (d *GitDependency) Validate() error {
 	if strings.TrimSpace(d.Ref) == "" {
 		return errors.New("git dependency: ref is required")
 	}
-	if d.Commit != "" && !commitPattern.MatchString(d.Commit) {
+	if d.Commit != "" && !IsValidCommitSHA(d.Commit) {
 		return fmt.Errorf("git dependency: commit must be a 40-character lowercase hex SHA, got %q", d.Commit)
 	}
 	return nil
