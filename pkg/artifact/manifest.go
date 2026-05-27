@@ -74,7 +74,7 @@ func (d *OCIDependency) Validate() error {
 		return errors.New("oci dependency: tag is required")
 	}
 	if d.Digest != "" && !digestPattern.MatchString(d.Digest) {
-		return fmt.Errorf("oci dependency: digest must match sha256:<64 hex chars>, got %q", d.Digest)
+		return fmt.Errorf("oci dependency: digest must match sha256:<64 lowercase hex chars>, got %q", d.Digest)
 	}
 	return nil
 }

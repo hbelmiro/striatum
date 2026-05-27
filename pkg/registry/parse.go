@@ -64,6 +64,9 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	if strings.Contains(gitRef, "!") {
 		return nil, fmt.Errorf("invalid git reference %q: commit delimiter '!' must appear after ref (and optional #path), not before '#'", ref)
 	}
+	if strings.ContainsRune(refAndPath, '#') && strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("invalid git reference %q: empty path after '#'", ref)
+	}
 	if commit == "" && strings.ContainsRune(refAndPath, '!') {
 		return nil, fmt.Errorf("invalid git reference %q: empty commit after '!'", ref)
 	}
@@ -107,6 +110,7 @@ func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", ref)
 	}
 
+	// Search from lastSlash to avoid confusing host:port with the tag colon.
 	tagColon := strings.LastIndex(ref[lastSlash:], ":")
 	if tagColon < 0 {
 		return nil, fmt.Errorf("invalid reference %q: missing tag", ref)
