@@ -75,6 +75,10 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				}
 			}
 
+			if err := validateResolvedPaths(resolved); err != nil {
+				return err
+			}
+
 			if noCache {
 				for i, r := range resolved {
 					if err := os.RemoveAll(filepath.Join(outputDir, r.Name)); err != nil {

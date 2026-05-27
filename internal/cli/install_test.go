@@ -1566,3 +1566,26 @@ func TestPullToStagingDir_ConcurrentPullsGetSeparateDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestPullToStagingDir_RejectsUnsafeArtifactNames(t *testing.T) {
+	parentDir := t.TempDir()
+	noop := func(string) error { return nil }
+
+	cases := []string{
+		"../escape",
+		"foo/bar",
+		"foo\\bar",
+		"..\\escape",
+		"a/../b",
+	}
+	for _, name := range cases {
+		_, cleanup, err := pullToStagingDir(parentDir, name, noop)
+		cleanup()
+		if err == nil {
+			t.Errorf("expected error for artifact name %q, got nil", name)
+		}
+		if err != nil && !strings.Contains(err.Error(), "unsafe artifact name") {
+			t.Errorf("error for %q should mention unsafe artifact name: %v", name, err)
+		}
+	}
+}

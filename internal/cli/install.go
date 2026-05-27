@@ -638,6 +638,9 @@ func pullDependency(ctx context.Context, dep artifact.Dependency, outputDir stri
 // calls pullFn with it, and returns the path to the artifact subdirectory
 // (tmpDir/<artifactName>). The caller MUST call cleanup when done.
 func pullToStagingDir(parentDir, artifactName string, pullFn func(stagingDir string) error) (artifactDir string, cleanup func(), err error) {
+	if strings.ContainsAny(artifactName, "/\\") || strings.Contains(artifactName, "..") {
+		return "", func() {}, fmt.Errorf("unsafe artifact name %q", artifactName)
+	}
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return "", func() {}, fmt.Errorf("create parent dir: %w", err)
 	}
