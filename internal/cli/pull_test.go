@@ -219,6 +219,115 @@ func TestPull_NoCache_WithDeps_TriesPullDependency(t *testing.T) {
 	}
 }
 
+func TestPull_CachedPath_StaleFilesNotInFinalCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	outDir := t.TempDir()
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "stale-cached", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheRoot := filepath.Join(home, "cache")
+	staleDir := filepath.Join(cacheRoot, "stale-cached")
+	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staleDir, "leftover.txt"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"pull", "oci:" + layoutDir + ":stale-cached:1.0.0", "--output", outDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+
+	cacheDir := installer.CacheDir("stale-cached", "1.0.0")
+	if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
+		t.Errorf("artifact.json should exist in final cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md should exist in final cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "leftover.txt")); !os.IsNotExist(err) {
+		t.Error("stale leftover.txt should NOT exist in final cache after cached pull")
+	}
+}
+
+func TestPull_NoCache_CleansStaleFiles(t *testing.T) {
+	t.Setenv("STRIATUM_HOME", t.TempDir())
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	outDir := t.TempDir()
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "stale-test", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"pull", "--no-cache", "oci:" + layoutDir + ":stale-test:1.0.0", "--output", outDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first pull: %v", err)
+	}
+
+	staleFile := filepath.Join(outDir, "stale-test", "leftover.txt")
+	if err := os.WriteFile(staleFile, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"pull", "--no-cache", "oci:" + layoutDir + ":stale-test:1.0.0", "--output", outDir})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("second pull: %v", err)
+	}
+
+	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+		t.Error("stale file should be removed after re-pull")
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "stale-test", "artifact.json")); err != nil {
+		t.Errorf("artifact.json should exist after re-pull: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "stale-test", "SKILL.md")); err != nil {
+		t.Errorf("SKILL.md should exist after re-pull: %v", err)
+	}
+}
+
 func TestPull_NoCache_OutputOnly(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", t.TempDir())
 	baseDir := t.TempDir()
