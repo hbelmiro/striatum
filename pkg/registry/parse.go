@@ -17,6 +17,10 @@ import (
 //   - "git:URL@ref#path"               -> *artifact.GitDependency (with sub-path)
 //   - "git:URL@ref!commit"             -> *artifact.GitDependency (with commit)
 //   - "git:URL@ref#path!commit"        -> *artifact.GitDependency (with sub-path and commit)
+//
+// The characters '#' and '!' are reserved delimiters in git references.
+// Git refs or sub-paths containing these characters cannot be represented
+// in this format.
 func ParseReference(ref string) (Locator, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
