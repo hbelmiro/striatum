@@ -16,7 +16,10 @@ var (
 	commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
-func IsValidDigest(s string) bool    { return digestPattern.MatchString(s) }
+// IsValidDigest reports whether s matches the OCI content digest format (sha256:<64 lowercase hex chars>).
+func IsValidDigest(s string) bool { return digestPattern.MatchString(s) }
+
+// IsValidCommitSHA reports whether s is a valid full-length Git commit SHA (40 lowercase hex chars).
 func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 
 const supportedAPIVersion = "striatum.dev/v1alpha2"

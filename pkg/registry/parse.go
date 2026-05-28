@@ -104,27 +104,28 @@ func parseOCILayoutReference(ref string) (*OCILayoutLocator, error) {
 }
 
 func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
+	originalRef := ref
 	digest := ""
 	if atIdx := strings.Index(ref, "@"); atIdx >= 0 {
 		digest = strings.TrimSpace(ref[atIdx+1:])
 		if digest == "" {
-			return nil, fmt.Errorf("invalid reference %q: empty digest after @", ref)
+			return nil, fmt.Errorf("invalid reference %q: empty digest after @", originalRef)
 		}
 		if !artifact.IsValidDigest(digest) {
-			return nil, fmt.Errorf("invalid reference %q: digest must match sha256:<64 lowercase hex chars>", ref)
+			return nil, fmt.Errorf("invalid reference %q: digest must match sha256:<64 lowercase hex chars>", originalRef)
 		}
 		ref = ref[:atIdx]
 	}
 
 	lastSlash := strings.LastIndex(ref, "/")
 	if lastSlash < 0 {
-		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", ref)
+		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", originalRef)
 	}
 
 	// Search from lastSlash to avoid confusing host:port with the tag colon.
 	tagColon := strings.LastIndex(ref[lastSlash:], ":")
 	if tagColon < 0 {
-		return nil, fmt.Errorf("invalid reference %q: missing tag", ref)
+		return nil, fmt.Errorf("invalid reference %q: missing tag", originalRef)
 	}
 	tagColon += lastSlash
 
@@ -132,18 +133,18 @@ func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 	tag := strings.TrimSpace(ref[tagColon+1:])
 
 	if repoWithHost == "" || tag == "" {
-		return nil, fmt.Errorf("invalid reference %q: empty host/repository or tag", ref)
+		return nil, fmt.Errorf("invalid reference %q: empty host/repository or tag", originalRef)
 	}
 
 	firstSlash := strings.Index(repoWithHost, "/")
 	if firstSlash < 0 {
-		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", ref)
+		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", originalRef)
 	}
 
 	host := repoWithHost[:firstSlash]
 	repository := repoWithHost[firstSlash+1:]
 	if host == "" || repository == "" {
-		return nil, fmt.Errorf("invalid reference %q: empty host or repository", ref)
+		return nil, fmt.Errorf("invalid reference %q: empty host or repository", originalRef)
 	}
 
 	return &artifact.OCIDependency{
