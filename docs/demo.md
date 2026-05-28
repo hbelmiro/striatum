@@ -90,6 +90,29 @@ After this, both helpers are available in the registry at `localhost:5050/demo/e
 
 Each OCI dependency declares its `registry`, `repository`, and `tag`. Striatum resolves them transitively at pull time.
 
+To record the exact version a dependency was resolved from, add an optional `digest` field (OCI) or `commit` field (Git). These fields are included in the canonical reference and persisted in the manifest, making it possible to tell whether two manifests point to the same content:
+
+```json
+{
+  "source": "oci",
+  "registry": "localhost:5050",
+  "repository": "demo/example-helper-a",
+  "tag": "1.0.0",
+  "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+```json
+{
+  "source": "git",
+  "url": "https://github.com/hbelmiro/striatum-demo-git-skill.git",
+  "ref": "main",
+  "commit": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+}
+```
+
+Both fields are optional. Without them, tags and refs remain mutable (a retagged image or a branch push changes what gets installed).
+
 Save that file as `artifact.json` alongside `demo/example-skill/SKILL.md`, then:
 
 ```bash

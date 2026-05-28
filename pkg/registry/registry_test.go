@@ -132,6 +132,12 @@ func TestParseReference_Git(t *testing.T) {
 			ref:     "git:https://github.com/org/repo.git@abc123def",
 			wantURL: "https://github.com/org/repo.git", wantRef: "abc123def",
 		},
+		{
+			name:    "trims whitespace from segments",
+			ref:     "git: https://github.com/org/repo.git @ main # sub ",
+			wantURL: "https://github.com/org/repo.git", wantRef: "main",
+			wantPath: "sub",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -191,6 +197,17 @@ func TestParseReference_Errors(t *testing.T) {
 		{"oci empty tag", "oci:./build:", "empty tag"},
 		{"empty repo (trailing slash)", "host/:1.0.0", "empty host or repository"},
 		{"empty host (leading slash)", "/repo:1.0.0", "empty host or repository"},
+		{"oci trailing @ empty digest", "reg.io/skills/a:1.0.0@", "empty digest"},
+		{"git trailing ! empty commit", "git:https://example.com/repo.git@main!", "empty commit"},
+		{"git trailing ! empty commit with path", "git:https://example.com/repo.git@main#sub!", "empty commit"},
+		{"git wrong ! ordering before #", "git:https://example.com/repo.git@main!abc123#sub", "commit delimiter"},
+		{"git whitespace-only commit", "git:https://example.com/repo.git@main!   ", "empty commit"},
+		{"git whitespace-only commit with path", "git:https://example.com/repo.git@main#sub!   ", "empty commit"},
+		{"git empty path after #", "git:https://example.com/repo.git@main#", "empty path"},
+		{"git empty path with commit", "git:https://example.com/repo.git@main#!abcdef0123456789abcdef0123456789abcdef01", "empty path"},
+		{"oci whitespace-only digest", "reg.io/skills/a:1.0.0@   ", "empty digest"},
+		{"git leading space in commit", "git:https://example.com/repo.git@main! abc", "commit"},
+		{"oci leading space in digest", "reg.io/skills/a:1.0.0@ sha256:abc", "digest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,6 +217,113 @@ func TestParseReference_Errors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.errMsg) {
 				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+func TestCanonicalRef_ParseReference_Roundtrip(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  artifact.Dependency
+	}{
+		{"OCI without digest", &artifact.OCIDependency{RegistryHost: "reg.io", Repository: "skills/a", Tag: "1.0.0"}},
+		{"OCI with digest", &artifact.OCIDependency{RegistryHost: "reg.io", Repository: "skills/a", Tag: "1.0.0", Digest: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}},
+		{"Git without commit", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "v1.0.0"}},
+		{"Git with path", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "v1.0.0", Path: "sub"}},
+		{"Git with commit", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "main", Commit: "abcdef0123456789abcdef0123456789abcdef01"}},
+		{"Git with path and commit", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "v1.0.0", Path: "sub", Commit: "abcdef0123456789abcdef0123456789abcdef01"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canonical := tt.dep.CanonicalRef()
+			parsed, err := ParseReference(canonical)
+			if err != nil {
+				t.Fatalf("ParseReference(%q) err = %v", canonical, err)
+			}
+			if parsed.CanonicalRef() != canonical {
+				t.Errorf("roundtrip failed: %q -> ParseReference -> %q", canonical, parsed.CanonicalRef())
+			}
+		})
+	}
+}
+
+func TestParseReference_RemoteOCI_WithDigest(t *testing.T) {
+	ref := "reg.io/skills/a:1.0.0@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	loc, err := ParseReference(ref)
+	if err != nil {
+		t.Fatalf("ParseReference(%q) err = %v", ref, err)
+	}
+	dep, ok := loc.(*artifact.OCIDependency)
+	if !ok {
+		t.Fatalf("type = %T, want *artifact.OCIDependency", loc)
+	}
+	if dep.RegistryHost != "reg.io" {
+		t.Errorf("RegistryHost = %q, want %q", dep.RegistryHost, "reg.io")
+	}
+	if dep.Repository != "skills/a" {
+		t.Errorf("Repository = %q, want %q", dep.Repository, "skills/a")
+	}
+	if dep.Tag != "1.0.0" {
+		t.Errorf("Tag = %q, want %q", dep.Tag, "1.0.0")
+	}
+	if dep.Digest != "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" {
+		t.Errorf("Digest = %q", dep.Digest)
+	}
+}
+
+func TestParseReference_Git_WithCommit(t *testing.T) {
+	tests := []struct {
+		name       string
+		ref        string
+		wantURL    string
+		wantRef    string
+		wantPath   string
+		wantCommit string
+	}{
+		{
+			name:       "with commit no path",
+			ref:        "git:https://example.com/repo.git@main!abcdef0123456789abcdef0123456789abcdef01",
+			wantURL:    "https://example.com/repo.git",
+			wantRef:    "main",
+			wantCommit: "abcdef0123456789abcdef0123456789abcdef01",
+		},
+		{
+			name:       "with commit and path",
+			ref:        "git:https://example.com/repo.git@v1.0.0#sub!abcdef0123456789abcdef0123456789abcdef01",
+			wantURL:    "https://example.com/repo.git",
+			wantRef:    "v1.0.0",
+			wantPath:   "sub",
+			wantCommit: "abcdef0123456789abcdef0123456789abcdef01",
+		},
+		{
+			name:    "without commit still works",
+			ref:     "git:https://example.com/repo.git@main",
+			wantURL: "https://example.com/repo.git",
+			wantRef: "main",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loc, err := ParseReference(tt.ref)
+			if err != nil {
+				t.Fatalf("ParseReference(%q) err = %v", tt.ref, err)
+			}
+			dep, ok := loc.(*artifact.GitDependency)
+			if !ok {
+				t.Fatalf("type = %T, want *artifact.GitDependency", loc)
+			}
+			if dep.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", dep.URL, tt.wantURL)
+			}
+			if dep.Ref != tt.wantRef {
+				t.Errorf("Ref = %q, want %q", dep.Ref, tt.wantRef)
+			}
+			if dep.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", dep.Path, tt.wantPath)
+			}
+			if dep.Commit != tt.wantCommit {
+				t.Errorf("Commit = %q, want %q", dep.Commit, tt.wantCommit)
 			}
 		})
 	}

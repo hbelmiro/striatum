@@ -6,9 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var (
+	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+)
+
+// IsValidDigest reports whether s matches the OCI content digest format (sha256:<64 lowercase hex chars>).
+func IsValidDigest(s string) bool { return digestPattern.MatchString(s) }
+
+// IsValidCommitSHA reports whether s is a valid full-length Git commit SHA (40 lowercase hex chars).
+func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 
 const supportedAPIVersion = "striatum.dev/v1alpha2"
 
@@ -44,12 +56,17 @@ type OCIDependency struct {
 	RegistryHost string `json:"registry"`
 	Repository   string `json:"repository"`
 	Tag          string `json:"tag"`
+	Digest       string `json:"digest,omitempty"`
 }
 
 func (d *OCIDependency) Source() string { return "oci" }
 
 func (d *OCIDependency) CanonicalRef() string {
-	return d.RegistryHost + "/" + d.Repository + ":" + d.Tag
+	s := d.RegistryHost + "/" + d.Repository + ":" + d.Tag
+	if d.Digest != "" {
+		s += "@" + d.Digest
+	}
+	return s
 }
 
 func (d *OCIDependency) Validate() error {
@@ -62,6 +79,9 @@ func (d *OCIDependency) Validate() error {
 	if strings.TrimSpace(d.Tag) == "" {
 		return errors.New("oci dependency: tag is required")
 	}
+	if d.Digest != "" && !IsValidDigest(d.Digest) {
+		return fmt.Errorf("oci dependency: digest must match sha256:<64 lowercase hex chars>, got %q", d.Digest)
+	}
 	return nil
 }
 
@@ -71,19 +91,22 @@ func (d *OCIDependency) MarshalJSON() ([]byte, error) {
 		Registry   string `json:"registry"`
 		Repository string `json:"repository"`
 		Tag        string `json:"tag"`
+		Digest     string `json:"digest,omitempty"`
 	}{
 		Source:     "oci",
 		Registry:   d.RegistryHost,
 		Repository: d.Repository,
 		Tag:        d.Tag,
+		Digest:     d.Digest,
 	})
 }
 
 // GitDependency is a dependency hosted in a Git repository.
 type GitDependency struct {
-	URL  string `json:"url"`
-	Ref  string `json:"ref"`
-	Path string `json:"path,omitempty"`
+	URL    string `json:"url"`
+	Ref    string `json:"ref"`
+	Path   string `json:"path,omitempty"`
+	Commit string `json:"commit,omitempty"`
 }
 
 func (d *GitDependency) Source() string { return "git" }
@@ -92,6 +115,9 @@ func (d *GitDependency) CanonicalRef() string {
 	s := "git:" + d.URL + "@" + d.Ref
 	if d.Path != "" {
 		s += "#" + d.Path
+	}
+	if d.Commit != "" {
+		s += "!" + d.Commit
 	}
 	return s
 }
@@ -103,6 +129,9 @@ func (d *GitDependency) Validate() error {
 	if strings.TrimSpace(d.Ref) == "" {
 		return errors.New("git dependency: ref is required")
 	}
+	if d.Commit != "" && !IsValidCommitSHA(d.Commit) {
+		return fmt.Errorf("git dependency: commit must be a 40-character lowercase hex SHA, got %q", d.Commit)
+	}
 	return nil
 }
 
@@ -112,11 +141,13 @@ func (d *GitDependency) MarshalJSON() ([]byte, error) {
 		URL    string `json:"url"`
 		Ref    string `json:"ref"`
 		Path   string `json:"path,omitempty"`
+		Commit string `json:"commit,omitempty"`
 	}{
 		Source: "git",
 		URL:    d.URL,
 		Ref:    d.Ref,
 		Path:   d.Path,
+		Commit: d.Commit,
 	})
 }
 
