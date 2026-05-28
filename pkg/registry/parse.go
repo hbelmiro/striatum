@@ -55,19 +55,23 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 		commit = refAndPath[bangIdx+1:]
 	}
 
-	if strings.TrimSpace(url) == "" {
+	url = strings.TrimSpace(url)
+	gitRef = strings.TrimSpace(gitRef)
+	path = strings.TrimSpace(path)
+	commit = strings.TrimSpace(commit)
+
+	if url == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty URL", ref)
 	}
-	if strings.TrimSpace(gitRef) == "" {
+	if gitRef == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty ref", ref)
 	}
 	if strings.Contains(gitRef, "!") {
 		return nil, fmt.Errorf("invalid git reference %q: commit delimiter '!' must appear after ref (and optional #path), not before '#'", ref)
 	}
-	if strings.ContainsRune(refAndPath, '#') && strings.TrimSpace(path) == "" {
+	if strings.ContainsRune(refAndPath, '#') && path == "" {
 		return nil, fmt.Errorf("invalid git reference %q: empty path after '#'", ref)
 	}
-	commit = strings.TrimSpace(commit)
 	if commit == "" && strings.ContainsRune(refAndPath, '!') {
 		return nil, fmt.Errorf("invalid git reference %q: empty commit after '!'", ref)
 	}

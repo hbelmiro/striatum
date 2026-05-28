@@ -132,6 +132,12 @@ func TestParseReference_Git(t *testing.T) {
 			ref:     "git:https://github.com/org/repo.git@abc123def",
 			wantURL: "https://github.com/org/repo.git", wantRef: "abc123def",
 		},
+		{
+			name:    "trims whitespace from segments",
+			ref:     "git: https://github.com/org/repo.git @ main # sub ",
+			wantURL: "https://github.com/org/repo.git", wantRef: "main",
+			wantPath: "sub",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
