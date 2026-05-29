@@ -209,9 +209,42 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			if err != nil {
 				return fmt.Errorf("parse git reference: %w", err)
 			}
-			rootManifest, err = defaultRouter().Inspect(ctx, loc)
+			gitDep, ok := loc.(*artifact.GitDependency)
+			if !ok {
+				return fmt.Errorf("expected git dependency from %q", reference)
+			}
+			cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
+			if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+				return fmt.Errorf("create cache root: %w", err)
+			}
+			stagingDir, err := os.MkdirTemp(cacheRoot, ".staging-git-root-*")
 			if err != nil {
-				return fmt.Errorf("inspect git artifact: %w", err)
+				return fmt.Errorf("create staging dir: %w", err)
+			}
+			if err := defaultRouter().Pull(ctx, loc, stagingDir); err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("pull git artifact: %w", err)
+			}
+			entries, err := os.ReadDir(stagingDir)
+			if err != nil || len(entries) == 0 {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("no artifact found after git pull")
+			}
+			pulledDir := filepath.Join(stagingDir, entries[0].Name())
+			rootManifest, err = artifact.Load(filepath.Join(pulledDir, "artifact.json"))
+			if err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("read artifact manifest from git pull: %w", err)
+			}
+			cacheDir := installer.CacheDir(rootManifest.Metadata.Name, rootManifest.Metadata.Version)
+			if err := atomicReplaceCacheDir(pulledDir, cacheDir); err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("cache git artifact: %w", err)
+			}
+			_ = os.RemoveAll(stagingDir)
+			gitBack := &gitbackend.Backend{}
+			if commit, err := gitBack.ResolveCommit(ctx, gitDep); err == nil && commit != "" {
+				_ = installer.WriteDigest(cacheDir, commit)
 			}
 		} else {
 			if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
