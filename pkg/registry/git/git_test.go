@@ -11,6 +11,14 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
+func fileURL(path string) string {
+	p := filepath.ToSlash(path)
+	if len(p) > 0 && p[0] != '/' {
+		p = "/" + p
+	}
+	return "file://" + p
+}
+
 // setupLocalRepo creates a bare git repo with an artifact.json and skill file
 // at the given subPath (empty string = repo root), tagged with tagName.
 // Returns the file:// URL to the bare repo.
@@ -64,7 +72,7 @@ func setupLocalRepo(t *testing.T, subPath, tagName string) string {
 	run(workDir, "git", "tag", tagName)
 	run(workDir, "git", "push", "origin", "HEAD", "--tags")
 
-	return "file://" + bareDir
+	return fileURL(bareDir)
 }
 
 func TestBackend_Inspect_RootPath(t *testing.T) {
@@ -202,7 +210,7 @@ func TestBackend_Inspect_InvalidJSON(t *testing.T) {
 
 	b := &Backend{}
 	_, err := b.Inspect(context.Background(), &artifact.GitDependency{
-		URL: "file://" + bareDir, Ref: "v1.0.0",
+		URL: fileURL(bareDir), Ref: "v1.0.0",
 	})
 	if err == nil {
 		t.Fatal("Inspect() should fail for invalid JSON in artifact.json")
@@ -256,7 +264,7 @@ func TestBackend_Pull_MissingSpecFile(t *testing.T) {
 	b := &Backend{}
 	outDir := t.TempDir()
 	err := b.Pull(context.Background(), &artifact.GitDependency{
-		URL: "file://" + bareDir, Ref: "v1.0.0",
+		URL: fileURL(bareDir), Ref: "v1.0.0",
 	}, outDir)
 	if err == nil {
 		t.Fatal("Pull() should fail when spec.files lists a missing file")
@@ -307,7 +315,7 @@ func TestBackend_Pull_RejectsPathTraversal(t *testing.T) {
 	run(workDir, "git", "tag", "v1.0.0")
 	run(workDir, "git", "push", "origin", "HEAD", "--tags")
 
-	repoURL := "file://" + bareDir
+	repoURL := fileURL(bareDir)
 	b := &Backend{}
 	outDir := t.TempDir()
 	err := b.Pull(context.Background(), &artifact.GitDependency{
@@ -430,7 +438,7 @@ func TestResolveCommit_AnnotatedTag(t *testing.T) {
 	run(workDir, "git", "push", "origin", "HEAD", "--tags")
 
 	b := &Backend{}
-	repoURL := "file://" + bareDir
+	repoURL := fileURL(bareDir)
 
 	tagSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
 		URL: repoURL, Ref: "v2.0.0",
@@ -562,7 +570,7 @@ func TestResolveCommit_AmbiguousBranchAndTag(t *testing.T) {
 
 	b := &Backend{}
 	_, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
-		URL: "file://" + bareDir, Ref: "release",
+		URL: fileURL(bareDir), Ref: "release",
 	})
 	if err == nil {
 		t.Fatal("expected error for ambiguous ref (branch and tag with same name)")
@@ -641,7 +649,7 @@ func TestResolveCommit_DetectsNewCommit(t *testing.T) {
 	run(workDir, "git", "push", "origin", "HEAD")
 
 	b := &Backend{}
-	repoURL := "file://" + bareDir
+	repoURL := fileURL(bareDir)
 	first, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
 		URL: repoURL, Ref: "master",
 	})
@@ -719,7 +727,7 @@ func TestBackend_Pull_UsesPinnedCommit(t *testing.T) {
 	b := &Backend{}
 	outDir := t.TempDir()
 	err := b.Pull(context.Background(), &artifact.GitDependency{
-		URL: "file://" + bareDir, Ref: "master", Commit: firstSHA,
+		URL: fileURL(bareDir), Ref: "master", Commit: firstSHA,
 	}, outDir)
 	if err != nil {
 		t.Fatalf("Pull() err = %v", err)
@@ -793,7 +801,7 @@ func TestBackend_Inspect_UsesPinnedCommit(t *testing.T) {
 
 	b := &Backend{}
 	m, err := b.Inspect(context.Background(), &artifact.GitDependency{
-		URL: "file://" + bareDir, Ref: "master", Commit: firstSHA,
+		URL: fileURL(bareDir), Ref: "master", Commit: firstSHA,
 	})
 	if err != nil {
 		t.Fatalf("Inspect() err = %v", err)

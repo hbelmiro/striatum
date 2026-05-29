@@ -1632,7 +1632,11 @@ func setupGitRepo(t *testing.T) string {
 	run(workDir, "git", "tag", "v1.0.0")
 	run(workDir, "git", "push", "origin", "HEAD", "--tags")
 
-	return "file://" + bareDir
+	p := filepath.ToSlash(bareDir)
+	if len(p) > 0 && p[0] != '/' {
+		p = "/" + p
+	}
+	return "file://" + p
 }
 
 func TestInstall_GitRef_HappyPath(t *testing.T) {
