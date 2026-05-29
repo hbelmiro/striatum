@@ -1604,7 +1604,7 @@ func setupGitRepo(t *testing.T) string {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {

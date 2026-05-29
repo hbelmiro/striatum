@@ -27,7 +27,7 @@ func setupLocalRepo(t *testing.T, subPath, tagName string) string {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -182,7 +182,7 @@ func TestBackend_Inspect_InvalidJSON(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -224,7 +224,7 @@ func TestBackend_Pull_MissingSpecFile(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -278,7 +278,7 @@ func TestBackend_Pull_RejectsPathTraversal(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -411,7 +411,7 @@ func TestResolveCommit_AnnotatedTag(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -511,7 +511,7 @@ func TestResolveCommit_AmbiguousBranchAndTag(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -600,7 +600,7 @@ func TestResolveCommit_DetectsNewCommit(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -657,7 +657,7 @@ func TestBackend_Pull_UsesPinnedCommit(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -726,7 +726,7 @@ func TestBackend_Inspect_UsesPinnedCommit(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
-			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
