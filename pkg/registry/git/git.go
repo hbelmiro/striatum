@@ -63,31 +63,55 @@ func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency
 		}
 	}
 
-	var peeledHash plumbing.Hash
-	var directHash plumbing.Hash
-	var found bool
+	type match struct {
+		direct plumbing.Hash
+		peeled plumbing.Hash
+	}
+	matches := make(map[string]*match)
 
 	for _, ref := range refs {
 		name := ref.Name().String()
 		for _, c := range candidates {
 			if name == c {
-				directHash = ref.Hash()
-				found = true
+				if matches[c] == nil {
+					matches[c] = &match{}
+				}
+				matches[c].direct = ref.Hash()
 			}
 			if name == c+"^{}" {
-				peeledHash = ref.Hash()
+				if matches[c] == nil {
+					matches[c] = &match{}
+				}
+				matches[c].peeled = ref.Hash()
 			}
 		}
 	}
 
-	if !found {
+	if len(matches) == 0 {
 		return "", fmt.Errorf("ref %q not found in %s", dep.Ref, dep.URL)
 	}
 
-	if !peeledHash.IsZero() {
-		return peeledHash.String(), nil
+	if len(matches) > 1 {
+		var resolved []plumbing.Hash
+		for _, m := range matches {
+			if !m.peeled.IsZero() {
+				resolved = append(resolved, m.peeled)
+			} else {
+				resolved = append(resolved, m.direct)
+			}
+		}
+		if len(resolved) >= 2 && resolved[0] != resolved[1] {
+			return "", fmt.Errorf("ref %q is ambiguous in %s (matches both a branch and a tag with different commits); use a fully-qualified ref (refs/heads/%s or refs/tags/%s)", dep.Ref, dep.URL, dep.Ref, dep.Ref)
+		}
 	}
-	return directHash.String(), nil
+
+	for _, m := range matches {
+		if !m.peeled.IsZero() {
+			return m.peeled.String(), nil
+		}
+		return m.direct.String(), nil
+	}
+	return "", fmt.Errorf("ref %q not found in %s", dep.Ref, dep.URL)
 }
 
 func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {

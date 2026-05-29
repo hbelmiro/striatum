@@ -204,17 +204,28 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		rootManifest = m
 	}
 	if rootManifest == nil {
-		if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
-			return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
-		}
-		var err error
-		targetObj, ref, err = resolveTargetAndRef(reference)
-		if err != nil {
-			return fmt.Errorf("resolve reference: %w", err)
-		}
-		rootManifest, err = oci.Inspect(ctx, targetObj, ref)
-		if err != nil {
-			return fmt.Errorf("read artifact manifest: %w", err)
+		if strings.HasPrefix(reference, "git:") {
+			loc, err := registry.ParseReference(reference)
+			if err != nil {
+				return fmt.Errorf("parse git reference: %w", err)
+			}
+			rootManifest, err = defaultRouter().Inspect(ctx, loc)
+			if err != nil {
+				return fmt.Errorf("inspect git artifact: %w", err)
+			}
+		} else {
+			if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
+				return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
+			}
+			var err error
+			targetObj, ref, err = resolveTargetAndRef(reference)
+			if err != nil {
+				return fmt.Errorf("resolve reference: %w", err)
+			}
+			rootManifest, err = oci.Inspect(ctx, targetObj, ref)
+			if err != nil {
+				return fmt.Errorf("read artifact manifest: %w", err)
+			}
 		}
 	}
 
@@ -616,17 +627,27 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 		pullFn := func(ctx context.Context, _ string) error {
 			created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
 				if idx == 0 {
-					pullTarget := rootTarget
-					pullRef := rootRef
-					if pullTarget == nil {
-						resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+					if strings.HasPrefix(reference, "git:") {
+						loc, err := registry.ParseReference(reference)
 						if err != nil {
-							return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+							return fmt.Errorf("parse git reference: %w", err)
 						}
-						pullTarget, pullRef = resolvedTarget, resolvedRef
-					}
-					if err := oci.Pull(ctx, pullTarget, pullRef, stagingDir); err != nil {
-						return fmt.Errorf("download OCI artifact: %w", err)
+						if err := defaultRouter().Pull(ctx, loc, stagingDir); err != nil {
+							return fmt.Errorf("download git artifact: %w", err)
+						}
+					} else {
+						pullTarget := rootTarget
+						pullRef := rootRef
+						if pullTarget == nil {
+							resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+							if err != nil {
+								return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+							}
+							pullTarget, pullRef = resolvedTarget, resolvedRef
+						}
+						if err := oci.Pull(ctx, pullTarget, pullRef, stagingDir); err != nil {
+							return fmt.Errorf("download OCI artifact: %w", err)
+						}
 					}
 				} else {
 					if err := pullDependency(ctx, res.Dependency, stagingDir); err != nil {

@@ -499,6 +499,56 @@ func TestResolveCommit_FullyQualifiedTagRef(t *testing.T) {
 	}
 }
 
+func TestResolveCommit_AmbiguousBranchAndTag(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+	}
+
+	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+	if err := os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "first")
+	run(workDir, "git", "tag", "release")
+	run(workDir, "git", "push", "origin", "HEAD", "--tags")
+
+	run(workDir, "git", "checkout", "-b", "release")
+	if err := os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "second")
+	run(workDir, "git", "push", "origin", "refs/heads/release:refs/heads/release")
+
+	b := &Backend{}
+	_, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: "file://" + bareDir, Ref: "release",
+	})
+	if err == nil {
+		t.Fatal("expected error for ambiguous ref (branch and tag with same name)")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("error should mention ambiguous, got: %v", err)
+	}
+}
+
 func TestResolveCommit_InvalidRef(t *testing.T) {
 	url := setupLocalRepo(t, "", "v1.0.0")
 	b := &Backend{}
