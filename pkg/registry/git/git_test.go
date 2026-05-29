@@ -499,6 +499,29 @@ func TestResolveCommit_FullyQualifiedTagRef(t *testing.T) {
 	}
 }
 
+func TestResolveCommit_HEADRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+
+	headSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit(HEAD) err = %v", err)
+	}
+
+	masterSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit(master) err = %v", err)
+	}
+
+	if headSHA != masterSHA {
+		t.Errorf("HEAD %q != master %q", headSHA, masterSHA)
+	}
+}
+
 func TestResolveCommit_AmbiguousBranchAndTag(t *testing.T) {
 	dir := t.TempDir()
 	workDir := filepath.Join(dir, "work")

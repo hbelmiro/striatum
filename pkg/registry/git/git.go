@@ -54,7 +54,23 @@ func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency
 	}
 
 	var candidates []string
-	if strings.HasPrefix(dep.Ref, "refs/") {
+	if dep.Ref == "HEAD" {
+		for _, ref := range refs {
+			if ref.Name().String() == "HEAD" {
+				if ref.Hash().IsZero() && ref.Target() != "" {
+					target := ref.Target().String()
+					for _, r := range refs {
+						if r.Name().String() == target {
+							return r.Hash().String(), nil
+						}
+					}
+					return "", fmt.Errorf("HEAD target %q not found in %s", target, dep.URL)
+				}
+				return ref.Hash().String(), nil
+			}
+		}
+		return "", fmt.Errorf("HEAD not found in %s", dep.URL)
+	} else if strings.HasPrefix(dep.Ref, "refs/") {
 		candidates = []string{dep.Ref}
 	} else {
 		candidates = []string{
