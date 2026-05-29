@@ -344,8 +344,9 @@ func (m *mockOCIBackend) Pull(ctx context.Context, dep *artifact.OCIDependency, 
 }
 
 type mockGitBackend struct {
-	inspectFn func(ctx context.Context, dep *artifact.GitDependency) (*artifact.Manifest, error)
-	pullFn    func(ctx context.Context, dep *artifact.GitDependency, outputDir string) error
+	inspectFn       func(ctx context.Context, dep *artifact.GitDependency) (*artifact.Manifest, error)
+	pullFn          func(ctx context.Context, dep *artifact.GitDependency, outputDir string) error
+	resolveCommitFn func(ctx context.Context, dep *artifact.GitDependency) (string, error)
 }
 
 func (m *mockGitBackend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*artifact.Manifest, error) {
@@ -353,6 +354,12 @@ func (m *mockGitBackend) Inspect(ctx context.Context, dep *artifact.GitDependenc
 }
 func (m *mockGitBackend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {
 	return m.pullFn(ctx, dep, outputDir)
+}
+func (m *mockGitBackend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency) (string, error) {
+	if m.resolveCommitFn != nil {
+		return m.resolveCommitFn(ctx, dep)
+	}
+	return "", nil
 }
 
 type mockOCILayoutBackend struct {

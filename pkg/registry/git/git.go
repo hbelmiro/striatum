@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/registry"
 )
@@ -31,6 +33,56 @@ func (b *Backend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*ar
 		return readErr
 	})
 	return m, err
+}
+
+func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency) (string, error) {
+	if dep.Commit != "" {
+		return dep.Commit, nil
+	}
+	if artifact.IsValidCommitSHA(dep.Ref) {
+		return dep.Ref, nil
+	}
+
+	remote := gogit.NewRemote(memory.NewStorage(), &config.RemoteConfig{
+		URLs: []string{dep.URL},
+	})
+	refs, err := remote.ListContext(ctx, &gogit.ListOptions{
+		PeelingOption: gogit.AppendPeeled,
+	})
+	if err != nil {
+		return "", fmt.Errorf("ls-remote %s: %w", dep.URL, err)
+	}
+
+	candidates := []string{
+		"refs/heads/" + dep.Ref,
+		"refs/tags/" + dep.Ref,
+	}
+
+	var peeledHash plumbing.Hash
+	var directHash plumbing.Hash
+	var found bool
+
+	for _, ref := range refs {
+		name := ref.Name().String()
+		for _, c := range candidates {
+			if name == c {
+				directHash = ref.Hash()
+				found = true
+			}
+			if name == c+"^{}" {
+				peeledHash = ref.Hash()
+			}
+		}
+	}
+
+	if !found {
+		return "", fmt.Errorf("ref %q not found in %s", dep.Ref, dep.URL)
+	}
+
+	if !peeledHash.IsZero() {
+		return peeledHash.String(), nil
+	}
+	return directHash.String(), nil
 }
 
 func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {

@@ -321,6 +321,234 @@ func TestBackend_Pull_RejectsPathTraversal(t *testing.T) {
 	}
 }
 
+// --- ResolveCommit ---
+
+func TestResolveCommit_PinnedCommit(t *testing.T) {
+	b := &Backend{}
+	commit := "abcdef0123456789abcdef0123456789abcdef01"
+	got, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: "https://example.com/repo.git", Ref: "main", Commit: commit,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit() err = %v", err)
+	}
+	if got != commit {
+		t.Errorf("got %q, want %q", got, commit)
+	}
+}
+
+func TestResolveCommit_BareSHARef(t *testing.T) {
+	b := &Backend{}
+	sha := "abcdef0123456789abcdef0123456789abcdef01"
+	got, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: "https://example.com/repo.git", Ref: sha,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit() err = %v", err)
+	}
+	if got != sha {
+		t.Errorf("got %q, want %q", got, sha)
+	}
+}
+
+func TestResolveCommit_BranchRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+	got, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit() err = %v", err)
+	}
+	if len(got) != 40 {
+		t.Errorf("expected 40-char SHA, got %q (len %d)", got, len(got))
+	}
+}
+
+func TestResolveCommit_TagRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+	got, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "v1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit() err = %v", err)
+	}
+	if len(got) != 40 {
+		t.Errorf("expected 40-char SHA, got %q (len %d)", got, len(got))
+	}
+}
+
+func TestResolveCommit_TagAndBranchAgree(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+	tagSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "v1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	branchSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("branch: %v", err)
+	}
+	if tagSHA != branchSHA {
+		t.Errorf("tag SHA %q != branch SHA %q (same commit)", tagSHA, branchSHA)
+	}
+}
+
+func TestResolveCommit_AnnotatedTag(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+	}
+
+	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+	if err := os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "init")
+	run(workDir, "git", "tag", "-a", "v2.0.0", "-m", "annotated tag")
+	run(workDir, "git", "push", "origin", "HEAD", "--tags")
+
+	b := &Backend{}
+	repoURL := "file://" + bareDir
+
+	tagSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: repoURL, Ref: "v2.0.0",
+	})
+	if err != nil {
+		t.Fatalf("ResolveCommit() err = %v", err)
+	}
+	if len(tagSHA) != 40 {
+		t.Errorf("expected 40-char SHA, got %q (len %d)", tagSHA, len(tagSHA))
+	}
+
+	branchSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: repoURL, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("branch resolve err = %v", err)
+	}
+	if tagSHA != branchSHA {
+		t.Errorf("annotated tag SHA %q != branch SHA %q (should dereference to commit)", tagSHA, branchSHA)
+	}
+}
+
+func TestResolveCommit_InvalidRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+	_, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "nonexistent-ref",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent ref")
+	}
+}
+
+func TestResolveCommit_InvalidURL(t *testing.T) {
+	b := &Backend{}
+	_, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: "file:///nonexistent/repo.git", Ref: "main",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+}
+
+func TestResolveCommit_StableWhenUnchanged(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+	dep := &artifact.GitDependency{URL: url, Ref: "v1.0.0"}
+
+	first, err := b.ResolveCommit(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := b.ResolveCommit(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if first != second {
+		t.Errorf("same ref returned different SHAs: %q vs %q", first, second)
+	}
+}
+
+func TestResolveCommit_DetectsNewCommit(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+	}
+
+	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "first")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	b := &Backend{}
+	repoURL := "file://" + bareDir
+	first, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: repoURL, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workDir, "new-file.txt"), []byte("update"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "second")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	second, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: repoURL, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+
+	if first == second {
+		t.Errorf("expected different SHAs after new commit, both = %q", first)
+	}
+}
+
 func TestValidateFilePaths(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -13,6 +13,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/registry"
+	gitbackend "github.com/hbelmiro/striatum/pkg/registry/git"
 	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2"
@@ -328,6 +329,13 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
 				}
 			}
+			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
+				capturedDep := gitDep
+				gitBack := &gitbackend.Backend{}
+				digestFn = func(ctx context.Context) (string, error) {
+					return gitBack.ResolveCommit(ctx, capturedDep)
+				}
+			}
 			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, digestFn); err != nil {
 				return fmt.Errorf("pull %s@%s: %w", res.Name, res.Version, err)
 			}
@@ -570,7 +578,19 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 					return oci.ResolveDigest(ctx, t, ref)
 				}
 			}
-			// If git ref or short ref, digestFn stays nil
+			if strings.HasPrefix(reference, "git:") {
+				loc, err := registry.ParseReference(reference)
+				if err != nil {
+					return fmt.Errorf("parse git reference %q: %w", reference, err)
+				}
+				if gitDep, ok := loc.(*artifact.GitDependency); ok {
+					capturedDep := gitDep
+					gitBack := &gitbackend.Backend{}
+					digestFn = func(ctx context.Context) (string, error) {
+						return gitBack.ResolveCommit(ctx, capturedDep)
+					}
+				}
+			}
 		} else {
 			// Dependency: check if it's an OCI dependency
 			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
@@ -584,7 +604,13 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
 				}
 			}
-			// Git dependencies: digestFn stays nil (no digest checking)
+			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
+				capturedDep := gitDep
+				gitBack := &gitbackend.Backend{}
+				digestFn = func(ctx context.Context) (string, error) {
+					return gitBack.ResolveCommit(ctx, capturedDep)
+				}
+			}
 		}
 
 		pullFn := func(ctx context.Context, _ string) error {
