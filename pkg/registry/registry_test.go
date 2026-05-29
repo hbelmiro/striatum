@@ -356,10 +356,10 @@ func (m *mockGitBackend) Pull(ctx context.Context, dep *artifact.GitDependency, 
 	return m.pullFn(ctx, dep, outputDir)
 }
 func (m *mockGitBackend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency) (string, error) {
-	if m.resolveCommitFn != nil {
-		return m.resolveCommitFn(ctx, dep)
+	if m.resolveCommitFn == nil {
+		panic("mockGitBackend.ResolveCommit called without resolveCommitFn set")
 	}
-	return "", nil
+	return m.resolveCommitFn(ctx, dep)
 }
 
 type mockOCILayoutBackend struct {

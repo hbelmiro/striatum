@@ -453,6 +453,52 @@ func TestResolveCommit_AnnotatedTag(t *testing.T) {
 	}
 }
 
+func TestResolveCommit_FullyQualifiedBranchRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+
+	shortSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "master",
+	})
+	if err != nil {
+		t.Fatalf("short ref: %v", err)
+	}
+
+	fullSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "refs/heads/master",
+	})
+	if err != nil {
+		t.Fatalf("fully-qualified ref: %v", err)
+	}
+
+	if shortSHA != fullSHA {
+		t.Errorf("short %q != full %q", shortSHA, fullSHA)
+	}
+}
+
+func TestResolveCommit_FullyQualifiedTagRef(t *testing.T) {
+	url := setupLocalRepo(t, "", "v1.0.0")
+	b := &Backend{}
+
+	shortSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "v1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("short ref: %v", err)
+	}
+
+	fullSHA, err := b.ResolveCommit(context.Background(), &artifact.GitDependency{
+		URL: url, Ref: "refs/tags/v1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("fully-qualified ref: %v", err)
+	}
+
+	if shortSHA != fullSHA {
+		t.Errorf("short %q != full %q", shortSHA, fullSHA)
+	}
+}
+
 func TestResolveCommit_InvalidRef(t *testing.T) {
 	url := setupLocalRepo(t, "", "v1.0.0")
 	b := &Backend{}
@@ -546,6 +592,141 @@ func TestResolveCommit_DetectsNewCommit(t *testing.T) {
 
 	if first == second {
 		t.Errorf("expected different SHAs after new commit, both = %q", first)
+	}
+}
+
+func TestBackend_Pull_UsesPinnedCommit(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+
+	manifest := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "test-skill", "version": "1.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]}
+}`
+	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "SKILL.md"), []byte("# Original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "first")
+	firstSHA := run(workDir, "git", "rev-parse", "HEAD")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	if err := os.WriteFile(filepath.Join(workDir, "SKILL.md"), []byte("# Updated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "second")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	b := &Backend{}
+	outDir := t.TempDir()
+	err := b.Pull(context.Background(), &artifact.GitDependency{
+		URL: "file://" + bareDir, Ref: "master", Commit: firstSHA,
+	}, outDir)
+	if err != nil {
+		t.Fatalf("Pull() err = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "test-skill", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(data), "Original") {
+		t.Errorf("expected content from pinned commit (Original), got %q", string(data))
+	}
+	if strings.Contains(string(data), "Updated") {
+		t.Errorf("got content from branch HEAD instead of pinned commit: %q", string(data))
+	}
+}
+
+func TestBackend_Inspect_UsesPinnedCommit(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+
+	manifest := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "test-skill", "version": "1.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]}
+}`
+	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "SKILL.md"), []byte("# Original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "first")
+	firstSHA := run(workDir, "git", "rev-parse", "HEAD")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	manifest2 := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "test-skill", "version": "2.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]}
+}`
+	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte(manifest2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "second")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	b := &Backend{}
+	m, err := b.Inspect(context.Background(), &artifact.GitDependency{
+		URL: "file://" + bareDir, Ref: "master", Commit: firstSHA,
+	})
+	if err != nil {
+		t.Fatalf("Inspect() err = %v", err)
+	}
+	if m.Metadata.Version != "1.0.0" {
+		t.Errorf("expected version 1.0.0 from pinned commit, got %q", m.Metadata.Version)
 	}
 }
 

@@ -53,9 +53,14 @@ func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency
 		return "", fmt.Errorf("ls-remote %s: %w", dep.URL, err)
 	}
 
-	candidates := []string{
-		"refs/heads/" + dep.Ref,
-		"refs/tags/" + dep.Ref,
+	var candidates []string
+	if strings.HasPrefix(dep.Ref, "refs/") {
+		candidates = []string{dep.Ref}
+	} else {
+		candidates = []string{
+			"refs/heads/" + dep.Ref,
+			"refs/tags/" + dep.Ref,
+		}
 	}
 
 	var peeledHash plumbing.Hash
@@ -138,9 +143,13 @@ func withTree(ctx context.Context, dep *artifact.GitDependency, fn func(*object.
 		return fmt.Errorf("clone %s: %w", dep.URL, err)
 	}
 
-	hash, err := repo.ResolveRevision(plumbing.Revision(dep.Ref))
+	ref := dep.Ref
+	if dep.Commit != "" {
+		ref = dep.Commit
+	}
+	hash, err := repo.ResolveRevision(plumbing.Revision(ref))
 	if err != nil {
-		return fmt.Errorf("resolve ref %q in %s: %w", dep.Ref, dep.URL, err)
+		return fmt.Errorf("resolve ref %q in %s: %w", ref, dep.URL, err)
 	}
 
 	commit, err := repo.CommitObject(*hash)
