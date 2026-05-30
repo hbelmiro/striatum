@@ -141,7 +141,11 @@ func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputD
 			return err
 		}
 
-		destDir := filepath.Join(outputDir, m.Metadata.Name)
+		name := m.Metadata.Name
+		if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") || name == "" {
+			return fmt.Errorf("unsafe artifact name %q in manifest", name)
+		}
+		destDir := filepath.Join(outputDir, name)
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return fmt.Errorf("create output dir: %w", err)
 		}
