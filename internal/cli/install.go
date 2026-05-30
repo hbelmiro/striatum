@@ -226,7 +226,11 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				return fmt.Errorf("pull git artifact: %w", err)
 			}
 			entries, err := os.ReadDir(stagingDir)
-			if err != nil || len(entries) == 0 {
+			if err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("read staging dir after git pull: %w", err)
+			}
+			if len(entries) == 0 {
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("no artifact found after git pull")
 			}
@@ -236,9 +240,10 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("read artifact manifest from git pull: %w", err)
 			}
-			name := rootManifest.Metadata.Name
-			version := rootManifest.Metadata.Version
-			if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
+			name := strings.TrimSpace(rootManifest.Metadata.Name)
+			version := strings.TrimSpace(rootManifest.Metadata.Version)
+			if name == "" || version == "" ||
+				strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
 				strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("unsafe artifact name or version %q / %q: must not contain path separators or '..'", name, version)

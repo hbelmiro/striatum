@@ -141,8 +141,8 @@ func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputD
 			return err
 		}
 
-		name := m.Metadata.Name
-		if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") || name == "" {
+		name := strings.TrimSpace(m.Metadata.Name)
+		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 			return fmt.Errorf("unsafe artifact name %q in manifest", name)
 		}
 		destDir := filepath.Join(outputDir, name)
