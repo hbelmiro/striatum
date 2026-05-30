@@ -43,7 +43,7 @@ func setupLocalRepo(t *testing.T, subPath, tagName string) string {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	artifactDir := workDir
@@ -198,7 +198,7 @@ func TestBackend_Inspect_InvalidJSON(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte("{invalid json"), 0o644); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestBackend_Pull_MissingSpecFile(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{
@@ -294,7 +294,7 @@ func TestBackend_Pull_RejectsPathTraversal(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{
@@ -349,7 +349,7 @@ func TestBackend_Pull_RejectsUnsafeMetadataName(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{
@@ -480,7 +480,7 @@ func TestResolveCommit_AnnotatedTag(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
@@ -603,7 +603,7 @@ func TestResolveCommit_AmbiguousBranchAndTag(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "file.txt"), []byte("first"), 0o644); err != nil {
 		t.Fatal(err)
@@ -692,7 +692,7 @@ func TestResolveCommit_DetectsNewCommit(t *testing.T) {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 	if err := os.WriteFile(filepath.Join(workDir, "artifact.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -750,7 +750,7 @@ func TestBackend_Pull_UsesPinnedCommit(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{
@@ -819,7 +819,7 @@ func TestBackend_Inspect_UsesPinnedCommit(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{

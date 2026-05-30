@@ -1612,7 +1612,7 @@ func setupGitRepo(t *testing.T) string {
 		}
 	}
 
-	run(dir, "git", "init", "--bare", bareDir)
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
 	run(dir, "git", "clone", bareDir, workDir)
 
 	manifest := `{
