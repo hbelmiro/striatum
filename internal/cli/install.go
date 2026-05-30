@@ -255,8 +255,12 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			}
 			_ = os.RemoveAll(stagingDir)
 			gitBack := &gitbackend.Backend{}
-			if commit, err := gitBack.ResolveCommit(ctx, gitDep); err == nil && commit != "" {
-				_ = installer.WriteDigest(cacheDir, commit)
+			commit, err := gitBack.ResolveCommit(ctx, gitDep)
+			if err != nil {
+				return fmt.Errorf("resolve git commit for cache digest: %w", err)
+			}
+			if err := installer.WriteDigest(cacheDir, commit); err != nil {
+				return fmt.Errorf("write cache digest: %w", err)
 			}
 		} else {
 			if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
