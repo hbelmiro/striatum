@@ -42,6 +42,7 @@ type OCIBackend interface {
 type GitBackend interface {
 	Inspect(ctx context.Context, dep *artifact.GitDependency) (*artifact.Manifest, error)
 	Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error
+	ResolveCommit(ctx context.Context, dep *artifact.GitDependency) (string, error)
 }
 
 // OCILayoutBackend handles local OCI Image Layout operations.

@@ -13,6 +13,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/registry"
+	gitbackend "github.com/hbelmiro/striatum/pkg/registry/git"
 	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2"
@@ -203,17 +204,79 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		rootManifest = m
 	}
 	if rootManifest == nil {
-		if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
-			return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
-		}
-		var err error
-		targetObj, ref, err = resolveTargetAndRef(reference)
-		if err != nil {
-			return fmt.Errorf("resolve reference: %w", err)
-		}
-		rootManifest, err = oci.Inspect(ctx, targetObj, ref)
-		if err != nil {
-			return fmt.Errorf("read artifact manifest: %w", err)
+		if strings.HasPrefix(reference, "git:") {
+			loc, err := registry.ParseReference(reference)
+			if err != nil {
+				return fmt.Errorf("parse git reference: %w", err)
+			}
+			gitDep, ok := loc.(*artifact.GitDependency)
+			if !ok {
+				return fmt.Errorf("expected git dependency from %q", reference)
+			}
+			cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
+			if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+				return fmt.Errorf("create cache root: %w", err)
+			}
+			stagingDir, err := os.MkdirTemp(cacheRoot, ".staging-git-root-*")
+			if err != nil {
+				return fmt.Errorf("create staging dir: %w", err)
+			}
+			if err := defaultRouter().Pull(ctx, loc, stagingDir); err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("pull git artifact: %w", err)
+			}
+			entries, err := os.ReadDir(stagingDir)
+			if err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("read staging dir after git pull: %w", err)
+			}
+			if len(entries) == 0 {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("no artifact found after git pull")
+			}
+			pulledDir := filepath.Join(stagingDir, entries[0].Name())
+			rootManifest, err = artifact.Load(filepath.Join(pulledDir, "artifact.json"))
+			if err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("read artifact manifest from git pull: %w", err)
+			}
+			name := rootManifest.Metadata.Name
+			version := rootManifest.Metadata.Version
+			if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" ||
+				name == "." || version == "." ||
+				name != strings.TrimSpace(name) || version != strings.TrimSpace(version) ||
+				strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
+				strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("unsafe artifact name or version %q / %q", name, version)
+			}
+			cacheDir := installer.CacheDir(name, version)
+			if err := atomicReplaceCacheDir(pulledDir, cacheDir); err != nil {
+				_ = os.RemoveAll(stagingDir)
+				return fmt.Errorf("cache git artifact: %w", err)
+			}
+			_ = os.RemoveAll(stagingDir)
+			gitBack := &gitbackend.Backend{}
+			commit, err := gitBack.ResolveCommit(ctx, gitDep)
+			if err != nil {
+				return fmt.Errorf("resolve git commit for cache digest: %w", err)
+			}
+			if err := installer.WriteDigest(cacheDir, commit); err != nil {
+				return fmt.Errorf("write cache digest: %w", err)
+			}
+		} else {
+			if !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:") {
+				return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
+			}
+			var err error
+			targetObj, ref, err = resolveTargetAndRef(reference)
+			if err != nil {
+				return fmt.Errorf("resolve reference: %w", err)
+			}
+			rootManifest, err = oci.Inspect(ctx, targetObj, ref)
+			if err != nil {
+				return fmt.Errorf("read artifact manifest: %w", err)
+			}
 		}
 	}
 
@@ -326,6 +389,13 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 						return "", err
 					}
 					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
+				}
+			}
+			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
+				capturedDep := gitDep
+				gitBack := &gitbackend.Backend{}
+				digestFn = func(ctx context.Context) (string, error) {
+					return gitBack.ResolveCommit(ctx, capturedDep)
 				}
 			}
 			if err := installer.EnsureInCache(ctx, depCacheDir, pullFn, digestFn); err != nil {
@@ -570,7 +640,19 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 					return oci.ResolveDigest(ctx, t, ref)
 				}
 			}
-			// If git ref or short ref, digestFn stays nil
+			if strings.HasPrefix(reference, "git:") {
+				loc, err := registry.ParseReference(reference)
+				if err != nil {
+					return fmt.Errorf("parse git reference %q: %w", reference, err)
+				}
+				if gitDep, ok := loc.(*artifact.GitDependency); ok {
+					capturedDep := gitDep
+					gitBack := &gitbackend.Backend{}
+					digestFn = func(ctx context.Context) (string, error) {
+						return gitBack.ResolveCommit(ctx, capturedDep)
+					}
+				}
+			}
 		} else {
 			// Dependency: check if it's an OCI dependency
 			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
@@ -584,23 +666,39 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
 				}
 			}
-			// Git dependencies: digestFn stays nil (no digest checking)
+			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
+				capturedDep := gitDep
+				gitBack := &gitbackend.Backend{}
+				digestFn = func(ctx context.Context) (string, error) {
+					return gitBack.ResolveCommit(ctx, capturedDep)
+				}
+			}
 		}
 
 		pullFn := func(ctx context.Context, _ string) error {
 			created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
 				if idx == 0 {
-					pullTarget := rootTarget
-					pullRef := rootRef
-					if pullTarget == nil {
-						resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+					if strings.HasPrefix(reference, "git:") {
+						loc, err := registry.ParseReference(reference)
 						if err != nil {
-							return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+							return fmt.Errorf("parse git reference: %w", err)
 						}
-						pullTarget, pullRef = resolvedTarget, resolvedRef
-					}
-					if err := oci.Pull(ctx, pullTarget, pullRef, stagingDir); err != nil {
-						return fmt.Errorf("download OCI artifact: %w", err)
+						if err := defaultRouter().Pull(ctx, loc, stagingDir); err != nil {
+							return fmt.Errorf("download git artifact: %w", err)
+						}
+					} else {
+						pullTarget := rootTarget
+						pullRef := rootRef
+						if pullTarget == nil {
+							resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+							if err != nil {
+								return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
+							}
+							pullTarget, pullRef = resolvedTarget, resolvedRef
+						}
+						if err := oci.Pull(ctx, pullTarget, pullRef, stagingDir); err != nil {
+							return fmt.Errorf("download OCI artifact: %w", err)
+						}
 					}
 				} else {
 					if err := pullDependency(ctx, res.Dependency, stagingDir); err != nil {

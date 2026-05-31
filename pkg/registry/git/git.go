@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/registry"
 )
@@ -33,6 +35,101 @@ func (b *Backend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*ar
 	return m, err
 }
 
+func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency) (string, error) {
+	if dep.Commit != "" {
+		return dep.Commit, nil
+	}
+	if artifact.IsValidCommitSHA(dep.Ref) {
+		return dep.Ref, nil
+	}
+
+	remote := gogit.NewRemote(memory.NewStorage(), &config.RemoteConfig{
+		URLs: []string{dep.URL},
+	})
+	refs, err := remote.ListContext(ctx, &gogit.ListOptions{
+		PeelingOption: gogit.AppendPeeled,
+	})
+	if err != nil {
+		return "", fmt.Errorf("ls-remote %s: %w", dep.URL, err)
+	}
+
+	var candidates []string
+	if dep.Ref == "HEAD" {
+		for _, ref := range refs {
+			if ref.Name().String() == "HEAD" {
+				if ref.Hash().IsZero() && ref.Target() != "" {
+					target := ref.Target().String()
+					for _, r := range refs {
+						if r.Name().String() == target {
+							return r.Hash().String(), nil
+						}
+					}
+					return "", fmt.Errorf("HEAD target %q not found in %s", target, dep.URL)
+				}
+				return ref.Hash().String(), nil
+			}
+		}
+		return "", fmt.Errorf("HEAD not found in %s", dep.URL)
+	} else if strings.HasPrefix(dep.Ref, "refs/") {
+		candidates = []string{dep.Ref}
+	} else {
+		candidates = []string{
+			"refs/heads/" + dep.Ref,
+			"refs/tags/" + dep.Ref,
+		}
+	}
+
+	type match struct {
+		direct plumbing.Hash
+		peeled plumbing.Hash
+	}
+	matches := make(map[string]*match)
+
+	for _, ref := range refs {
+		name := ref.Name().String()
+		for _, c := range candidates {
+			if name == c {
+				if matches[c] == nil {
+					matches[c] = &match{}
+				}
+				matches[c].direct = ref.Hash()
+			}
+			if name == c+"^{}" {
+				if matches[c] == nil {
+					matches[c] = &match{}
+				}
+				matches[c].peeled = ref.Hash()
+			}
+		}
+	}
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("ref %q not found in %s", dep.Ref, dep.URL)
+	}
+
+	if len(matches) > 1 {
+		var resolved []plumbing.Hash
+		for _, m := range matches {
+			if !m.peeled.IsZero() {
+				resolved = append(resolved, m.peeled)
+			} else {
+				resolved = append(resolved, m.direct)
+			}
+		}
+		if len(resolved) >= 2 && resolved[0] != resolved[1] {
+			return "", fmt.Errorf("ref %q is ambiguous in %s (matches both a branch and a tag with different commits); use a fully-qualified ref (refs/heads/%s or refs/tags/%s)", dep.Ref, dep.URL, dep.Ref, dep.Ref)
+		}
+	}
+
+	for _, m := range matches {
+		if !m.peeled.IsZero() {
+			return m.peeled.String(), nil
+		}
+		return m.direct.String(), nil
+	}
+	return "", fmt.Errorf("ref %q not found in %s", dep.Ref, dep.URL)
+}
+
 func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {
 	return withTree(ctx, dep, func(tree *object.Tree) error {
 		m, err := readManifestFromTree(tree, dep.Path)
@@ -44,7 +141,11 @@ func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputD
 			return err
 		}
 
-		destDir := filepath.Join(outputDir, m.Metadata.Name)
+		name := m.Metadata.Name
+		if strings.TrimSpace(name) == "" || name == "." || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") || name != strings.TrimSpace(name) {
+			return fmt.Errorf("unsafe artifact name %q in manifest", name)
+		}
+		destDir := filepath.Join(outputDir, name)
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return fmt.Errorf("create output dir: %w", err)
 		}
@@ -86,9 +187,13 @@ func withTree(ctx context.Context, dep *artifact.GitDependency, fn func(*object.
 		return fmt.Errorf("clone %s: %w", dep.URL, err)
 	}
 
-	hash, err := repo.ResolveRevision(plumbing.Revision(dep.Ref))
+	ref := dep.Ref
+	if dep.Commit != "" {
+		ref = dep.Commit
+	}
+	hash, err := repo.ResolveRevision(plumbing.Revision(ref))
 	if err != nil {
-		return fmt.Errorf("resolve ref %q in %s: %w", dep.Ref, dep.URL, err)
+		return fmt.Errorf("resolve ref %q in %s: %w", ref, dep.URL, err)
 	}
 
 	commit, err := repo.CommitObject(*hash)
