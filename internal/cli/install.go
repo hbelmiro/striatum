@@ -240,13 +240,14 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("read artifact manifest from git pull: %w", err)
 			}
-			name := strings.TrimSpace(rootManifest.Metadata.Name)
-			version := strings.TrimSpace(rootManifest.Metadata.Version)
-			if name == "" || version == "" ||
+			name := rootManifest.Metadata.Name
+			version := rootManifest.Metadata.Version
+			if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" ||
+				name != strings.TrimSpace(name) || version != strings.TrimSpace(version) ||
 				strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
 				strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
 				_ = os.RemoveAll(stagingDir)
-				return fmt.Errorf("unsafe artifact name or version %q / %q: must not contain path separators or '..'", name, version)
+				return fmt.Errorf("unsafe artifact name or version %q / %q", name, version)
 			}
 			cacheDir := installer.CacheDir(name, version)
 			if err := atomicReplaceCacheDir(pulledDir, cacheDir); err != nil {
