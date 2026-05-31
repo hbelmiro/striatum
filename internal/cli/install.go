@@ -243,6 +243,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			name := rootManifest.Metadata.Name
 			version := rootManifest.Metadata.Version
 			if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" ||
+				name == "." || version == "." ||
 				name != strings.TrimSpace(name) || version != strings.TrimSpace(version) ||
 				strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
 				strings.ContainsAny(version, "/\\") || strings.Contains(version, "..") {
