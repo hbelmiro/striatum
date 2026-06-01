@@ -5,21 +5,21 @@
 class Striatum < Formula
   desc "OCI-native CLI for packaging and distributing AI artifacts"
   homepage "https://github.com/hbelmiro/striatum"
-  version "0.1.0"
+  version "0.2.0"
   license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/hbelmiro/striatum/releases/download/v0.1.0/striatum_0.1.0_darwin_amd64.tar.gz"
-      sha256 "6f698ae9d22f0f58f306ee5d790e48c821d34bc129cbf552a852a758cf91b8d3"
+      url "https://github.com/hbelmiro/striatum/releases/download/v0.2.0/striatum_0.2.0_darwin_amd64.tar.gz"
+      sha256 "cde8ccd9b744adc6d82caba604b351c09bec203e2bc426edc9a2c55ccb1f59a2"
 
       define_method(:install) do
         bin.install "striatum"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/hbelmiro/striatum/releases/download/v0.1.0/striatum_0.1.0_darwin_arm64.tar.gz"
-      sha256 "e8773468844a4db6f9bafbd39b462748a7a04e599665b33d8db643aef06eed42"
+      url "https://github.com/hbelmiro/striatum/releases/download/v0.2.0/striatum_0.2.0_darwin_arm64.tar.gz"
+      sha256 "fc015f285c95eee9e00ef990179ddddff1ea09d4efd2e976e8a13ddae68e5157"
 
       define_method(:install) do
         bin.install "striatum"
@@ -29,15 +29,15 @@ class Striatum < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/hbelmiro/striatum/releases/download/v0.1.0/striatum_0.1.0_linux_amd64.tar.gz"
-      sha256 "6eb7bc5a301b3d303e5ac52c19e013dda07d5749c2ecc5b1a00b7a9a3ce50a97"
+      url "https://github.com/hbelmiro/striatum/releases/download/v0.2.0/striatum_0.2.0_linux_amd64.tar.gz"
+      sha256 "0d20169765ee708d7e8c7e46db3fee4e70c54369f3e68c205fed7cee6fd7fe4b"
       define_method(:install) do
         bin.install "striatum"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/hbelmiro/striatum/releases/download/v0.1.0/striatum_0.1.0_linux_arm64.tar.gz"
-      sha256 "e38f4007f31635ea52b40a23d664dc723a0be240b38385531c42043007288a1c"
+      url "https://github.com/hbelmiro/striatum/releases/download/v0.2.0/striatum_0.2.0_linux_arm64.tar.gz"
+      sha256 "3659ea40b58f87d89de404aa0ac5a21dc61bde47806b9f2bff19da2461e70533"
       define_method(:install) do
         bin.install "striatum"
       end
