@@ -31,17 +31,19 @@ func newInspectCmd() *cobra.Command {
 }
 
 func inspectOCI(cmd *cobra.Command, reference string) error {
-	target, ref, _, err := resolveTargetAndRef(reference)
+	target, ref, digest, err := resolveTargetAndRef(reference)
 	if err != nil {
 		return fmt.Errorf("resolve reference: %w", err)
+	}
+	if digest == "" {
+		digest, err = oci.ResolveDigest(cmd.Context(), target, ref)
+		if err != nil {
+			return fmt.Errorf("resolve digest: %w", err)
+		}
 	}
 	m, err := oci.Inspect(cmd.Context(), target, ref)
 	if err != nil {
 		return fmt.Errorf("inspect artifact manifest and metadata: %w", err)
-	}
-	digest, err := oci.ResolveDigest(cmd.Context(), target, ref)
-	if err != nil {
-		return fmt.Errorf("resolve digest: %w", err)
 	}
 	printManifest(cmd.OutOrStdout(), m, digest, "")
 	return nil
@@ -57,13 +59,14 @@ func inspectGit(cmd *cobra.Command, reference string) error {
 		return fmt.Errorf("expected git dependency from %q", reference)
 	}
 	backend := &gitbackend.Backend{}
-	m, err := backend.Inspect(cmd.Context(), gitDep)
-	if err != nil {
-		return fmt.Errorf("inspect git artifact: %w", err)
-	}
 	commit, err := backend.ResolveCommit(cmd.Context(), gitDep)
 	if err != nil {
 		return fmt.Errorf("resolve git commit: %w", err)
+	}
+	gitDep.Commit = commit
+	m, err := backend.Inspect(cmd.Context(), gitDep)
+	if err != nil {
+		return fmt.Errorf("inspect git artifact: %w", err)
 	}
 	printManifest(cmd.OutOrStdout(), m, "", commit)
 	return nil
