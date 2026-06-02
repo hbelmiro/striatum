@@ -101,6 +101,9 @@ func TestRefToCacheCandidate(t *testing.T) {
 		{"invalid no colon", "no-colon-at-all", "", "", false},
 		{"git ref rejected", "git:https://github.com/org/repo@v1.0.0", "", "", false},
 		{"git ref with path rejected", "git:https://github.com/org/repo@main#skills/foo", "", "", false},
+		{"registry ref with digest", "localhost:5000/skills/foo:1.0.0@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "foo", "1.0.0", true},
+		{"registry ref deep path with digest", "host/a/b/c:2.0.0@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", "c", "2.0.0", true},
+		{"git ref with commit rejected", "git:https://github.com/org/repo@main!abcdef0123456789abcdef0123456789abcdef01", "", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1667,5 +1670,37 @@ func TestInstall_GitRef_HappyPath(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "Git Skill") {
 		t.Errorf("SKILL.md = %q, want 'Git Skill'", string(data))
+	}
+}
+
+func TestInstall_GitRef_WithCommit_HappyPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupGitRepo(t)
+
+	// Extract the bare repo path from the file:// URL to get the commit SHA.
+	barePath := strings.TrimPrefix(repoURL, "file://")
+	commitOut, err := exec.Command("git", "-C", barePath, "rev-parse", "v1.0.0^{commit}").Output()
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	commitSHA := strings.TrimSpace(string(commitOut))
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "git:" + repoURL + "@v1.0.0!" + commitSHA})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install git ref with commit: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("output %q", out.String())
+	}
+
+	cursorSkills := filepath.Join(home, ".cursor", "skills", "git-skill")
+	if _, err := os.Stat(filepath.Join(cursorSkills, "artifact.json")); err != nil {
+		t.Errorf("artifact not installed: %v", err)
 	}
 }

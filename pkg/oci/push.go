@@ -16,7 +16,7 @@ import (
 // For oci: references, the path is passed to the OCI layout store as-is (use absolute paths
 // for predictable behavior across platforms).
 func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference string) error {
-	repo, tag, err := SplitReference(reference)
+	repo, tag, _, err := SplitReference(reference)
 	if err != nil {
 		return fmt.Errorf("parse reference: %w", err)
 	}

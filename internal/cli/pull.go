@@ -34,7 +34,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			target, ref, err := resolveTargetAndRef(reference)
+			target, ref, _, err := resolveTargetAndRef(reference)
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
@@ -116,26 +116,27 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 	return cmd
 }
 
-// resolveTargetAndRef parses reference and returns a read-only target and the ref to resolve (tag).
-func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, error) {
+// resolveTargetAndRef parses reference and returns a read-only target, the ref to resolve (tag),
+// and an optional OCI manifest digest (empty when absent or for layout references).
+func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, string, error) {
 	if strings.HasPrefix(reference, "oci:") {
-		layoutPath, tag, err := oci.SplitReference(reference)
+		layoutPath, tag, _, err := oci.SplitReference(reference)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		store, err := orasoci.New(layoutPath)
 		if err != nil {
-			return nil, "", fmt.Errorf("open OCI layout: %w", err)
+			return nil, "", "", fmt.Errorf("open OCI layout: %w", err)
 		}
-		return store, tag, nil
+		return store, tag, "", nil
 	}
-	repo, tag, err := oci.SplitReference(reference)
+	repo, tag, digest, err := oci.SplitReference(reference)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	reg, err := oci.NewRepository(repo)
 	if err != nil {
-		return nil, "", fmt.Errorf("create repository: %w", err)
+		return nil, "", "", fmt.Errorf("create repository: %w", err)
 	}
-	return reg, tag, nil
+	return reg, tag, digest, nil
 }
