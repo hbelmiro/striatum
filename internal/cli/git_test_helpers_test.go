@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,12 +44,13 @@ func setupLocalGitRepo(t *testing.T, subPath, tagName string) string {
 		}
 	}
 
-	manifest := `{
+	version := strings.TrimPrefix(tagName, "v")
+	manifest := fmt.Sprintf(`{
   "apiVersion": "striatum.dev/v1alpha2",
   "kind": "Skill",
-  "metadata": {"name": "git-skill", "version": "1.0.0"},
+  "metadata": {"name": "git-skill", "version": %q},
   "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]}
-}`
+}`, version)
 	if err := os.WriteFile(filepath.Join(artifactDir, "artifact.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

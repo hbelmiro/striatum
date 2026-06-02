@@ -20,7 +20,7 @@ func newInspectCmd() *cobra.Command {
 		Example: "  striatum inspect localhost:5000/skills/my-skill:1.0.0\n  striatum inspect git:https://github.com/example/skill.git@v1.0.0",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reference := args[0]
+			reference := strings.TrimSpace(args[0])
 
 			if strings.HasPrefix(reference, "git:") {
 				return inspectGit(cmd, reference)
@@ -34,6 +34,9 @@ func inspectOCI(cmd *cobra.Command, reference string) error {
 	target, ref, digest, err := resolveTargetAndRef(reference)
 	if err != nil {
 		return fmt.Errorf("resolve reference: %w", err)
+	}
+	if digest != "" && !artifact.IsValidDigest(digest) {
+		return fmt.Errorf("invalid digest %q: must match sha256:<64 lowercase hex chars>", digest)
 	}
 	if digest == "" {
 		digest, err = oci.ResolveDigest(cmd.Context(), target, ref)

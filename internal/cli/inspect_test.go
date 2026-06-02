@@ -147,7 +147,7 @@ func TestInspect_OCI_DisplaysDigest(t *testing.T) {
 		t.Errorf("output should contain Digest: sha256:<64 hex chars>\n%s", got)
 	}
 	lines := strings.Split(got, "\n")
-	var kindIdx, digestIdx, entryIdx int
+	kindIdx, digestIdx, entryIdx := -1, -1, -1
 	for i, l := range lines {
 		if strings.HasPrefix(l, "Kind:") {
 			kindIdx = i
@@ -159,8 +159,8 @@ func TestInspect_OCI_DisplaysDigest(t *testing.T) {
 			entryIdx = i
 		}
 	}
-	if digestIdx == 0 {
-		t.Fatalf("Digest line not found in output:\n%s", got)
+	if kindIdx < 0 || digestIdx < 0 || entryIdx < 0 {
+		t.Fatalf("expected Kind, Digest, and Entrypoint lines in output:\n%s", got)
 	}
 	if kindIdx >= digestIdx || digestIdx >= entryIdx {
 		t.Errorf("Digest should appear between Kind and Entrypoint; Kind=%d Digest=%d Entrypoint=%d\n%s",
@@ -191,7 +191,7 @@ func TestInspect_Git_DisplaysCommit(t *testing.T) {
 		t.Errorf("output should contain artifact name\n%s", got)
 	}
 	lines := strings.Split(got, "\n")
-	var kindIdx, commitIdx, entryIdx int
+	kindIdx, commitIdx, entryIdx := -1, -1, -1
 	for i, l := range lines {
 		if strings.HasPrefix(l, "Kind:") {
 			kindIdx = i
@@ -203,8 +203,8 @@ func TestInspect_Git_DisplaysCommit(t *testing.T) {
 			entryIdx = i
 		}
 	}
-	if commitIdx == 0 {
-		t.Fatalf("Commit line not found in output:\n%s", got)
+	if kindIdx < 0 || commitIdx < 0 || entryIdx < 0 {
+		t.Fatalf("expected Kind, Commit, and Entrypoint lines in output:\n%s", got)
 	}
 	if kindIdx >= commitIdx || commitIdx >= entryIdx {
 		t.Errorf("Commit should appear between Kind and Entrypoint; Kind=%d Commit=%d Entrypoint=%d\n%s",
