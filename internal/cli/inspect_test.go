@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -106,6 +107,140 @@ func TestInspect_InvalidRef_Errors(t *testing.T) {
 	root.SetArgs([]string{"inspect", "oci:./nonexistent-layout:tag"})
 	if err := root.Execute(); err == nil {
 		t.Error("inspect with bad layout: expected error")
+	}
+}
+
+func TestInspect_OCI_DisplaysDigest(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "digest-test", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"inspect", "oci:" + layoutDir + ":digest-test:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	got := out.String()
+	digestPattern := regexp.MustCompile(`Digest:\s+sha256:[0-9a-f]{64}`)
+	if !digestPattern.MatchString(got) {
+		t.Errorf("output should contain Digest: sha256:<64 hex chars>\n%s", got)
+	}
+	lines := strings.Split(got, "\n")
+	kindIdx, digestIdx, entryIdx := -1, -1, -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "Kind:") {
+			kindIdx = i
+		}
+		if strings.HasPrefix(l, "Digest:") {
+			digestIdx = i
+		}
+		if strings.HasPrefix(l, "Entrypoint:") {
+			entryIdx = i
+		}
+	}
+	if kindIdx < 0 || digestIdx < 0 || entryIdx < 0 {
+		t.Fatalf("expected Kind, Digest, and Entrypoint lines in output:\n%s", got)
+	}
+	if kindIdx >= digestIdx || digestIdx >= entryIdx {
+		t.Errorf("Digest should appear between Kind and Entrypoint; Kind=%d Digest=%d Entrypoint=%d\n%s",
+			kindIdx, digestIdx, entryIdx, got)
+	}
+	if strings.Contains(got, "Commit:") {
+		t.Errorf("OCI output should not contain Commit: line\n%s", got)
+	}
+}
+
+func TestInspect_Git_DisplaysCommit(t *testing.T) {
+	repoURL := setupLocalGitRepo(t, "", "v1.0.0")
+	ref := "git:" + repoURL + "@v1.0.0"
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"inspect", ref})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("inspect git: %v", err)
+	}
+	got := out.String()
+	commitPattern := regexp.MustCompile(`Commit:\s+[0-9a-f]{40}`)
+	if !commitPattern.MatchString(got) {
+		t.Errorf("output should contain Commit: <40 hex chars>\n%s", got)
+	}
+	if !strings.Contains(got, "Name:") || !strings.Contains(got, "git-skill") {
+		t.Errorf("output should contain artifact name\n%s", got)
+	}
+	lines := strings.Split(got, "\n")
+	kindIdx, commitIdx, entryIdx := -1, -1, -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "Kind:") {
+			kindIdx = i
+		}
+		if strings.HasPrefix(l, "Commit:") {
+			commitIdx = i
+		}
+		if strings.HasPrefix(l, "Entrypoint:") {
+			entryIdx = i
+		}
+	}
+	if kindIdx < 0 || commitIdx < 0 || entryIdx < 0 {
+		t.Fatalf("expected Kind, Commit, and Entrypoint lines in output:\n%s", got)
+	}
+	if kindIdx >= commitIdx || commitIdx >= entryIdx {
+		t.Errorf("Commit should appear between Kind and Entrypoint; Kind=%d Commit=%d Entrypoint=%d\n%s",
+			kindIdx, commitIdx, entryIdx, got)
+	}
+	if strings.Contains(got, "Digest:") {
+		t.Errorf("Git output should not contain Digest: line\n%s", got)
+	}
+}
+
+func TestInspect_Git_WithSubPath(t *testing.T) {
+	repoURL := setupLocalGitRepo(t, "sub/dir", "v2.0.0")
+	ref := "git:" + repoURL + "@v2.0.0#sub/dir"
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"inspect", ref})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("inspect git with subpath: %v", err)
+	}
+	got := out.String()
+	commitPattern := regexp.MustCompile(`Commit:\s+[0-9a-f]{40}`)
+	if !commitPattern.MatchString(got) {
+		t.Errorf("output should contain Commit: <40 hex chars>\n%s", got)
+	}
+	if !strings.Contains(got, "git-skill") {
+		t.Errorf("output should contain artifact name from subpath\n%s", got)
+	}
+}
+
+func TestInspect_Git_InvalidRef_Errors(t *testing.T) {
+	root := NewRootCommand()
+	root.SetArgs([]string{"inspect", "git:https://example.com/repo.git"})
+	if err := root.Execute(); err == nil {
+		t.Error("inspect with invalid git ref (missing @ref): expected error")
 	}
 }
 
