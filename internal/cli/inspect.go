@@ -41,7 +41,11 @@ func inspectOCI(cmd *cobra.Command, reference string) error {
 			return fmt.Errorf("resolve digest: %w", err)
 		}
 	}
-	m, err := oci.Inspect(cmd.Context(), target, ref)
+	inspectRef := ref
+	if digest != "" {
+		inspectRef = digest
+	}
+	m, err := oci.Inspect(cmd.Context(), target, inspectRef)
 	if err != nil {
 		return fmt.Errorf("inspect artifact manifest and metadata: %w", err)
 	}
