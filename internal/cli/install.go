@@ -124,7 +124,7 @@ func refToCacheCandidate(reference string) (name, version string, ok bool) {
 		return "", "", false
 	}
 	if strings.HasPrefix(reference, "oci:") {
-		_, tag, err := oci.SplitReference(reference)
+		_, tag, _, err := oci.SplitReference(reference)
 		if err != nil {
 			return "", "", false
 		}
@@ -139,7 +139,7 @@ func refToCacheCandidate(reference string) (name, version string, ok bool) {
 		}
 		return name, version, true
 	}
-	repo, tag, err := oci.SplitReference(reference)
+	repo, tag, _, err := oci.SplitReference(reference)
 	if err != nil {
 		return "", "", false
 	}
@@ -269,7 +269,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
 			}
 			var err error
-			targetObj, ref, err = resolveTargetAndRef(reference)
+			targetObj, ref, _, err = resolveTargetAndRef(reference)
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
@@ -633,7 +633,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 				// Root was loaded from cache; lazy-resolve target for digest (only if not short ref)
 				capturedRef := reference
 				digestFn = func(ctx context.Context) (string, error) {
-					t, ref, err := resolveTargetAndRef(capturedRef)
+					t, ref, _, err := resolveTargetAndRef(capturedRef)
 					if err != nil {
 						return "", err
 					}
@@ -690,7 +690,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 						pullTarget := rootTarget
 						pullRef := rootRef
 						if pullTarget == nil {
-							resolvedTarget, resolvedRef, err := resolveTargetAndRef(reference)
+							resolvedTarget, resolvedRef, _, err := resolveTargetAndRef(reference)
 							if err != nil {
 								return fmt.Errorf("root was loaded from cache but cache is no longer present; cannot re-pull: %w", err)
 							}

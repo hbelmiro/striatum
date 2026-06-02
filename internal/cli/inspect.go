@@ -17,7 +17,7 @@ func newInspectCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
-			target, ref, err := resolveTargetAndRef(reference)
+			target, ref, _, err := resolveTargetAndRef(reference)
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
