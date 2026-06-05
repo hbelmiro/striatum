@@ -821,6 +821,78 @@ func TestInstall_LocalDir_DotReference(t *testing.T) {
 	}
 }
 
+func TestInstall_LocalDir_RejectsPromptKind(t *testing.T) {
+	promptDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: "severity-rubric", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptDir, "severity-rubric.md"), []byte("# Severity Rubric"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", promptDir})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error when installing a Prompt artifact")
+	}
+	if !strings.Contains(err.Error(), "prompt") || !strings.Contains(err.Error(), "cannot be installed") {
+		t.Errorf("error should explain Prompt cannot be installed, got: %v", err)
+	}
+}
+
+func TestInstall_OCI_RejectsPromptKind(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: "oci-prompt", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "rubric.md", Files: []string{"rubric.md"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "rubric.md"), []byte("# Rubric"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":oci-prompt:1.0.0"})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error when installing a Prompt artifact via OCI")
+	}
+	if !strings.Contains(err.Error(), "prompt") || !strings.Contains(err.Error(), "cannot be installed") {
+		t.Errorf("error should explain Prompt cannot be installed, got: %v", err)
+	}
+}
+
 func TestInstall_LocalDir_InvalidManifest(t *testing.T) {
 	skillDir := t.TempDir()
 	home := t.TempDir()
@@ -1376,6 +1448,105 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 	}
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 DB entries, got %d", len(entries))
+	}
+}
+
+func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
+	home := t.TempDir()
+	skillDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	const depDigest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	depName := "severity-rubric"
+	depVersion := "1.0.0"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "512")
+			w.Header().Set("Docker-Content-Digest", depDigest)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	dockerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte(`{"auths":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
+	rootManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "skill-with-prompt", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: srvHost,
+				Repository:   depName,
+				Tag:          depVersion,
+			},
+		},
+	}
+	data, err := json.Marshal(rootManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill with Prompt dep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	depCacheDir := installer.CacheDir(depName, depVersion)
+	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: depName, Version: depVersion},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	depData, err := json.Marshal(depManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "artifact.json"), depData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "severity-rubric.md"), []byte("# Severity Rubric"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.WriteDigest(depCacheDir, depDigest); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install skill with prompt dep: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed 2") {
+		t.Errorf("expected 2 artifacts installed, got %q", out.String())
+	}
+
+	rootTarget := filepath.Join(home, ".cursor", "skills", "skill-with-prompt")
+	if _, err := os.Stat(filepath.Join(rootTarget, "SKILL.md")); err != nil {
+		t.Errorf("root SKILL.md not installed: %v", err)
+	}
+	depTarget := filepath.Join(home, ".cursor", "skills", depName)
+	if _, err := os.Stat(filepath.Join(depTarget, "severity-rubric.md")); err != nil {
+		t.Errorf("prompt dep severity-rubric.md not installed to target: %v", err)
 	}
 }
 

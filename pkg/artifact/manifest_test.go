@@ -513,6 +513,31 @@ func TestValidate_ValidManifest(t *testing.T) {
 	}
 }
 
+func TestValidate_PromptKind(t *testing.T) {
+	m := &Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   Metadata{Name: "severity-rubric", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	if err := Validate(m); err != nil {
+		t.Errorf("Validate() err = %v, want nil for Prompt kind", err)
+	}
+}
+
+func TestSupportedKindsList_IncludesPrompt(t *testing.T) {
+	list := SupportedKindsList()
+	if !strings.Contains(list, "Prompt") {
+		t.Errorf("SupportedKindsList() = %q, want it to contain Prompt", list)
+	}
+	if !strings.Contains(list, "Skill") {
+		t.Errorf("SupportedKindsList() = %q, want it to contain Skill", list)
+	}
+	if list != "Prompt, Skill" {
+		t.Errorf("SupportedKindsList() = %q, want alphabetical: Prompt, Skill", list)
+	}
+}
+
 func TestValidate_ValidManifestWithDeps(t *testing.T) {
 	m := &Manifest{
 		APIVersion: "striatum.dev/v1alpha2",

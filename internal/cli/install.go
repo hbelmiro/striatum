@@ -195,7 +195,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	var rootManifest *artifact.Manifest
 
 	if name, version, ok := refToCacheCandidate(reference); ok {
-		m, err := loadCachedSkillManifest(name, version)
+		m, err := loadCachedManifest(name, version)
 		if err != nil {
 			return err
 		}
@@ -278,6 +278,10 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 	}
 
+	if rootManifest.Kind == "Prompt" {
+		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
+	}
+
 	var resolved []resolver.ResolvedArtifact
 	if len(rootManifest.Dependencies) == 0 {
 		resolved = []resolver.ResolvedArtifact{{
@@ -324,6 +328,9 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 	}
 	if err := artifact.ValidateLocal(rootManifest, absPath); err != nil {
 		return fmt.Errorf("validate local files: %w", err)
+	}
+	if rootManifest.Kind == "Prompt" {
+		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
 	}
 
 	name := rootManifest.Metadata.Name

@@ -53,7 +53,7 @@ cd "$REPO_ROOT"
 # ---------------------------------------------------------------------------
 # 1) OCI artifacts: pack and push helpers first, then root
 # ---------------------------------------------------------------------------
-for dir in example-helper-a example-helper-b; do
+for dir in example-helper-a example-helper-b example-prompt; do
   echo "Packing and pushing $dir..."
   (cd "$DEMO_DIR/$dir" && "$STRIATUM" pack && "$STRIATUM" push "$REGISTRY_BASE/$dir:1.0.0")
 done
@@ -70,7 +70,8 @@ cat > "$SKILL_DIR/artifact.json" <<EOF
   "spec": { "entrypoint": "SKILL.md", "files": ["SKILL.md"] },
   "dependencies": [
     { "source": "oci", "registry": "$REGISTRY_HOST", "repository": "demo/example-helper-a", "tag": "1.0.0" },
-    { "source": "oci", "registry": "$REGISTRY_HOST", "repository": "demo/example-helper-b", "tag": "1.0.0" }
+    { "source": "oci", "registry": "$REGISTRY_HOST", "repository": "demo/example-helper-b", "tag": "1.0.0" },
+    { "source": "oci", "registry": "$REGISTRY_HOST", "repository": "demo/example-prompt", "tag": "1.0.0" }
   ]
 }
 EOF

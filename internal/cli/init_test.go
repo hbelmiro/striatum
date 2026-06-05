@@ -98,6 +98,31 @@ func TestInit_RequiresEntrypoint(t *testing.T) {
 	}
 }
 
+func TestInit_PromptKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"init", "--name", "severity-rubric", "--kind", "Prompt", "--entrypoint", "severity-rubric.md"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init --kind Prompt: %v", err)
+	}
+
+	m, err := artifact.Load(filepath.Join(dir, "artifact.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != "Prompt" {
+		t.Errorf("kind = %q, want Prompt", m.Kind)
+	}
+	if m.Metadata.Name != "severity-rubric" {
+		t.Errorf("name = %q, want severity-rubric", m.Metadata.Name)
+	}
+	if err := artifact.Validate(m); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+}
+
 func TestInit_RejectsUnsupportedKind(t *testing.T) {
 	t.Chdir(t.TempDir())
 
