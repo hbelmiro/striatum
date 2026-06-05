@@ -487,19 +487,19 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if existing == nil {
 		existing = []installer.InstalledEntry{}
 	}
-	required := buildRequired(existing, normProject)
-	for _, r := range resolved {
-		if v, ok := required[r.Name]; ok && v != r.Version && !force {
-			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
-		}
-	}
-
 	installable := make([]resolver.ResolvedArtifact, 0, len(resolved))
 	for _, r := range resolved {
 		if r.Manifest != nil && r.Manifest.Kind == "Prompt" {
 			continue
 		}
 		installable = append(installable, r)
+	}
+
+	required := buildRequired(existing, normProject)
+	for _, r := range installable {
+		if v, ok := required[r.Name]; ok && v != r.Version && !force {
+			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
+		}
 	}
 
 	targetDir, err := installer.Targets(target, projectPath)
