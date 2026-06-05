@@ -195,7 +195,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	var rootManifest *artifact.Manifest
 
 	if name, version, ok := refToCacheCandidate(reference); ok {
-		m, err := loadCachedSkillManifest(name, version)
+		m, err := loadCachedManifest(name, version)
 		if err != nil {
 			return err
 		}
@@ -278,6 +278,10 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 	}
 
+	if rootManifest.Kind == "Prompt" {
+		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
+	}
+
 	var resolved []resolver.ResolvedArtifact
 	if len(rootManifest.Dependencies) == 0 {
 		resolved = []resolver.ResolvedArtifact{{
@@ -324,6 +328,9 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 	}
 	if err := artifact.ValidateLocal(rootManifest, absPath); err != nil {
 		return fmt.Errorf("validate local files: %w", err)
+	}
+	if rootManifest.Kind == "Prompt" {
+		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
 	}
 
 	name := rootManifest.Metadata.Name
@@ -480,8 +487,16 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if existing == nil {
 		existing = []installer.InstalledEntry{}
 	}
-	required := buildRequired(existing, normProject)
+	installable := make([]resolver.ResolvedArtifact, 0, len(resolved))
 	for _, r := range resolved {
+		if r.Manifest != nil && r.Manifest.Kind == "Prompt" {
+			continue
+		}
+		installable = append(installable, r)
+	}
+
+	required := buildRequired(existing, normProject)
+	for _, r := range installable {
 		if v, ok := required[r.Name]; ok && v != r.Version && !force {
 			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
 		}
@@ -491,7 +506,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if err != nil {
 		return fmt.Errorf("resolve target dir: %w", err)
 	}
-	for _, r := range resolved {
+	for _, r := range installable {
 		cd := installer.CacheDir(r.Name, r.Version)
 		if err := installer.InstallToTarget(cd, targetDir, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
@@ -506,7 +521,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		key := e.Skill + "|" + e.Target + "|" + e.ProjectPath
 		byKey[key] = e
 	}
-	for _, r := range resolved {
+	for _, r := range installable {
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {
 			installedWith = ""
@@ -547,7 +562,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if err := installer.SaveInstalled(newEntries); err != nil {
 		return fmt.Errorf("save installed: %w", err)
 	}
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(resolved), "artifact(s) to", targetDir)
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(installable), "artifact(s) to", targetDir)
 	return nil
 }
 

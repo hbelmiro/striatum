@@ -1,0 +1,12 @@
+{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Prompt",
+  "metadata": {
+    "name": "example-prompt",
+    "version": "1.0.0"
+  },
+  "spec": {
+    "entrypoint": "severity-rubric.md",
+    "files": ["severity-rubric.md"]
+  }
+}

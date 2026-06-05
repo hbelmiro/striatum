@@ -25,7 +25,8 @@ func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 const supportedAPIVersion = "striatum.dev/v1alpha2"
 
 var supportedKinds = map[string]bool{
-	"Skill": true,
+	"Prompt": true,
+	"Skill":  true,
 }
 
 // IsSupportedKind reports whether kind is a recognized artifact kind.

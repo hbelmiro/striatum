@@ -207,9 +207,9 @@ func TestRemoteFetcher_UnsupportedDep(t *testing.T) {
 	}
 }
 
-// --- loadCachedSkillManifest edge cases ---
+// --- loadCachedManifest edge cases ---
 
-func TestLoadCachedSkillManifest_CorruptJSON_Recovers(t *testing.T) {
+func TestLoadCachedManifest_CorruptJSON_Recovers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
@@ -221,7 +221,7 @@ func TestLoadCachedSkillManifest_CorruptJSON_Recovers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := loadCachedSkillManifest("corrupt", "1.0.0")
+	m, err := loadCachedManifest("corrupt", "1.0.0")
 	if err != nil {
 		t.Fatalf("should recover from corrupt cache, got err = %v", err)
 	}
@@ -230,7 +230,7 @@ func TestLoadCachedSkillManifest_CorruptJSON_Recovers(t *testing.T) {
 	}
 }
 
-func TestLoadCachedSkillManifest_WrongName_Recovers(t *testing.T) {
+func TestLoadCachedManifest_WrongName_Recovers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
@@ -249,7 +249,7 @@ func TestLoadCachedSkillManifest_WrongName_Recovers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := loadCachedSkillManifest("wrong-name", "1.0.0")
+	got, err := loadCachedManifest("wrong-name", "1.0.0")
 	if err != nil {
 		t.Fatalf("should recover from mismatched name, got err = %v", err)
 	}
@@ -258,7 +258,29 @@ func TestLoadCachedSkillManifest_WrongName_Recovers(t *testing.T) {
 	}
 }
 
-func TestLoadCachedSkillManifest_WrongKind_Recovers(t *testing.T) {
+func TestLoadCachedManifest_UnsupportedKind_Recovers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+
+	cacheDir := installer.CacheDir("my-thing", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"apiVersion":"striatum.dev/v1alpha2","kind":"Unknown","metadata":{"name":"my-thing","version":"1.0.0"},"spec":{"entrypoint":"THING.md","files":["THING.md"]}}`)
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := loadCachedManifest("my-thing", "1.0.0")
+	if err != nil {
+		t.Fatalf("should recover from unsupported kind, got err = %v", err)
+	}
+	if got != nil {
+		t.Error("should return nil manifest for unsupported kind")
+	}
+}
+
+func TestLoadCachedManifest_PromptKind_CacheHit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
@@ -266,17 +288,26 @@ func TestLoadCachedSkillManifest_WrongKind_Recovers(t *testing.T) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte(`{"apiVersion":"striatum.dev/v1alpha2","kind":"Prompt","metadata":{"name":"my-prompt","version":"1.0.0"},"spec":{"entrypoint":"PROMPT.md","files":["PROMPT.md"]}}`)
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: "my-prompt", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	data, _ := json.Marshal(m)
 	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := loadCachedSkillManifest("my-prompt", "1.0.0")
+	got, err := loadCachedManifest("my-prompt", "1.0.0")
 	if err != nil {
-		t.Fatalf("should recover from wrong kind, got err = %v", err)
+		t.Fatalf("err = %v", err)
 	}
-	if got != nil {
-		t.Error("should return nil manifest for Kind != Skill")
+	if got == nil {
+		t.Fatal("should return manifest for Prompt kind cache hit")
+	}
+	if got.Kind != "Prompt" {
+		t.Errorf("kind = %q, want Prompt", got.Kind)
 	}
 }
 

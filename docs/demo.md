@@ -1,9 +1,9 @@
-# Tutorial: packaging and distributing AI skills with Striatum
+# Tutorial: packaging and distributing AI artifacts with Striatum
 
-This walkthrough takes you through the full Striatum lifecycle — from creating an artifact, to pushing it to a registry, pulling it with dependency resolution, and installing it as a Cursor skill. By the end you will have:
+This walkthrough takes you through the full Striatum lifecycle, from creating an artifact, to pushing it to a registry, pulling it with dependency resolution, and installing it as a Cursor skill. By the end you will have:
 
-- Packed and pushed artifacts to an OCI registry
-- Pulled a skill with transitive **OCI** and **Git** dependencies
+- Packed and pushed artifacts (skills and prompts) to an OCI registry
+- Pulled a skill with transitive **OCI** and **Git** dependencies, including a Prompt dependency
 - Installed and uninstalled a skill in Cursor
 
 ## Prerequisites
@@ -22,13 +22,14 @@ go build -o striatum ./cmd/striatum
 
 The `demo/` directory contains sample artifacts you can experiment with:
 
-| Artifact                                                                         | Dependencies                                              | Stored in      |
-|----------------------------------------------------------------------------------|-----------------------------------------------------------|----------------|
-| `example-skill`                                                                  | `example-helper-a` (OCI), `example-helper-b` (OCI)        | OCI registry   |
-| `example-helper-a`                                                               | none                                                      | OCI registry   |
-| `example-helper-b`                                                               | none                                                      | OCI registry   |
-| `example-skill-git`                                                              | `example-helper-a` (OCI), `striatum-demo-git-skill` (Git) | OCI registry   |
-| [`striatum-demo-git-skill`](https://github.com/hbelmiro/striatum-demo-git-skill) | none                                                      | Git repository |
+| Artifact                                                                         | Kind   | Dependencies                                                                   | Stored in      |
+|----------------------------------------------------------------------------------|--------|--------------------------------------------------------------------------------|----------------|
+| `example-skill`                                                                  | Skill  | `example-helper-a` (OCI), `example-helper-b` (OCI), `example-prompt` (OCI)     | OCI registry   |
+| `example-helper-a`                                                               | Skill  | none                                                                           | OCI registry   |
+| `example-helper-b`                                                               | Skill  | none                                                                           | OCI registry   |
+| `example-prompt`                                                                 | Prompt | none                                                                           | OCI registry   |
+| `example-skill-git`                                                              | Skill  | `example-helper-a` (OCI), `striatum-demo-git-skill` (Git)                      | OCI registry   |
+| [`striatum-demo-git-skill`](https://github.com/hbelmiro/striatum-demo-git-skill) | Skill  | none                                                                           | Git repository |
 
 > **Note:** The checked-in `artifact.json` files for `example-skill` and `example-skill-git` do not include dependencies. The demo script (`scripts/demo.sh`) generates the full manifests at runtime, injecting the correct registry host and dependency declarations.
 
@@ -67,13 +68,14 @@ Leaf artifacts have no dependencies. Pack bundles the files listed in `artifact.
 ```bash
 (cd demo/example-helper-a && ../../striatum pack && ../../striatum push localhost:5050/demo/example-helper-a:1.0.0)
 (cd demo/example-helper-b && ../../striatum pack && ../../striatum push localhost:5050/demo/example-helper-b:1.0.0)
+(cd demo/example-prompt && ../../striatum pack && ../../striatum push localhost:5050/demo/example-prompt:1.0.0)
 ```
 
-After this, both helpers are available in the registry at `localhost:5050/demo/example-helper-{a,b}:1.0.0`.
+After this, both helpers and the prompt are available in the registry. Note that `example-prompt` has `kind: Prompt` in its manifest. Prompts follow the same pack/push/pull lifecycle as skills but cannot be installed into IDE skill directories (they are consumed as dependencies).
 
 ## Step 3 — Pack and push a root artifact with OCI dependencies
 
-`example-skill` depends on both helpers. The demo script generates an `artifact.json` with the correct registry host at runtime, but you can create one yourself:
+`example-skill` depends on both helpers and the prompt. The demo script generates an `artifact.json` with the correct registry host at runtime, but you can create one yourself:
 
 ```json
 {
@@ -83,12 +85,13 @@ After this, both helpers are available in the registry at `localhost:5050/demo/e
   "spec": { "entrypoint": "SKILL.md", "files": ["SKILL.md"] },
   "dependencies": [
     { "source": "oci", "registry": "localhost:5050", "repository": "demo/example-helper-a", "tag": "1.0.0" },
-    { "source": "oci", "registry": "localhost:5050", "repository": "demo/example-helper-b", "tag": "1.0.0" }
+    { "source": "oci", "registry": "localhost:5050", "repository": "demo/example-helper-b", "tag": "1.0.0" },
+    { "source": "oci", "registry": "localhost:5050", "repository": "demo/example-prompt", "tag": "1.0.0" }
   ]
 }
 ```
 
-Each OCI dependency declares its `registry`, `repository`, and `tag`. Striatum resolves them transitively at pull time.
+Each OCI dependency declares its `registry`, `repository`, and `tag`. Striatum resolves them transitively at pull time. Dependencies can be any supported artifact kind: here `example-prompt` is a Prompt consumed by the skill.
 
 To record the exact version a dependency was resolved from, add an optional `digest` field (OCI) or `commit` field (Git). These fields are included in the canonical reference and persisted in the manifest, making it possible to tell whether two manifests point to the same content:
 
@@ -125,13 +128,14 @@ Save that file as `artifact.json` alongside `demo/example-skill/SKILL.md`, then:
 ./striatum pull localhost:5050/demo/example-skill:1.0.0 -o ./demo-out
 ```
 
-Striatum reads the root manifest, discovers the two OCI dependencies, fetches their manifests, and downloads everything into the output directory:
+Striatum reads the root manifest, discovers the three OCI dependencies, fetches their manifests, and downloads everything into the output directory:
 
 ```text
 demo-out/
   example-skill/        # root artifact
-  example-helper-a/     # OCI dependency
-  example-helper-b/     # OCI dependency
+  example-helper-a/     # OCI dependency (Skill)
+  example-helper-b/     # OCI dependency (Skill)
+  example-prompt/       # OCI dependency (Prompt)
 ```
 
 ## Step 5 — Install and uninstall a skill
@@ -197,5 +201,5 @@ demo-out-git/
 ```bash
 docker rm -f striatum-demo
 rm -rf demo-out demo-out-git
-rm -rf demo/example-helper-a/build demo/example-helper-b/build demo/example-skill/build demo/example-skill-git/build
+rm -rf demo/example-helper-a/build demo/example-helper-b/build demo/example-prompt/build demo/example-skill/build demo/example-skill-git/build
 ```

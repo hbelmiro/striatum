@@ -14,10 +14,10 @@ import (
 	"github.com/hbelmiro/striatum/pkg/resolver"
 )
 
-// loadCachedSkillManifest tries to load a Skill manifest from the Striatum cache for
+// loadCachedManifest tries to load a manifest from the Striatum cache for
 // the given name@version. Returns (manifest, nil) on cache hit, (nil, nil) on cache miss
 // or after removing a corrupt entry, or (nil, error) on unrecoverable failures.
-func loadCachedSkillManifest(name, version string) (*artifact.Manifest, error) {
+func loadCachedManifest(name, version string) (*artifact.Manifest, error) {
 	cacheDir := installer.CacheDir(name, version)
 	manifestPath := filepath.Join(cacheDir, "artifact.json")
 	if _, err := os.Stat(manifestPath); err != nil {
@@ -33,7 +33,7 @@ func loadCachedSkillManifest(name, version string) (*artifact.Manifest, error) {
 		}
 		return nil, nil
 	}
-	if m.Metadata.Name != name || m.Metadata.Version != version || m.Kind != "Skill" {
+	if m.Metadata.Name != name || m.Metadata.Version != version || !artifact.IsSupportedKind(m.Kind) {
 		if removeErr := os.Remove(manifestPath); removeErr != nil {
 			return nil, fmt.Errorf("cache corruption for %s@%s; remove failed: %w", name, version, removeErr)
 		}
@@ -57,7 +57,7 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, dep artifact.Depe
 	if !ok {
 		return f.next.FetchManifest(ctx, dep)
 	}
-	m, err := loadCachedSkillManifest(name, version)
+	m, err := loadCachedManifest(name, version)
 	if err != nil {
 		return nil, err
 	}

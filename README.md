@@ -45,7 +45,7 @@ For `validate`, `pack`, and `push`, use `-f` / `--manifest` with a path to `arti
 
 The flag treats a path as a manifest **file** only when its final component is named `artifact.json` (case-insensitive, e.g. `Artifact.json` on disk). Any other final component is treated as a **project directory** and `artifact.json` is appended—even if that name is missing—so typos get errors pointing at the expected manifest path.
 
-- `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind`, `--entrypoint`)
+- `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind` (Skill, Prompt), `--entrypoint`)
 - `striatum validate` — validate local artifact and optionally check dependencies
 - `striatum pack` — bundle artifact into a local OCI Image Layout at `<project>/build/` by default (the manifest’s project directory, not necessarily the shell’s cwd—see `-f` / `--manifest`); optional `-o` / `--output` sets another layout directory (paths relative to the shell’s cwd, like `pull --output`)
 - `striatum push <reference>` — push to an OCI registry
@@ -59,6 +59,7 @@ The flag treats a path as a manifest **file** only when its final component is n
 
 ```bash
 striatum init --name my-skill --kind Skill --entrypoint SKILL.md
+striatum init --name severity-rubric --kind Prompt --entrypoint severity-rubric.md
 striatum validate
 striatum validate -f packages/my-skill
 striatum validate --check-deps --registry localhost:5000/skills
