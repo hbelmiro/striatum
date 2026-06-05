@@ -1536,8 +1536,8 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install skill with prompt dep: %v", err)
 	}
-	if !strings.Contains(out.String(), "Installed 2") {
-		t.Errorf("expected 2 artifacts installed, got %q", out.String())
+	if !strings.Contains(out.String(), "Installed 1") {
+		t.Errorf("expected 1 artifact installed (Prompt dep excluded), got %q", out.String())
 	}
 
 	rootTarget := filepath.Join(home, ".cursor", "skills", "skill-with-prompt")
@@ -1545,8 +1545,8 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 		t.Errorf("root SKILL.md not installed: %v", err)
 	}
 	depTarget := filepath.Join(home, ".cursor", "skills", depName)
-	if _, err := os.Stat(filepath.Join(depTarget, "severity-rubric.md")); err != nil {
-		t.Errorf("prompt dep severity-rubric.md not installed to target: %v", err)
+	if _, err := os.Stat(depTarget); err == nil {
+		t.Errorf("prompt dep should NOT be installed to target dir, but %s exists", depTarget)
 	}
 }
 
