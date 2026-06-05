@@ -26,7 +26,7 @@ func newSkillListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&installed, "installed", false, "List installed skills instead of cache")
-	cmd.Flags().StringVar(&target, "target", "", "Filter installed list by target (cursor or claude); only with --installed")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Filter installed list by target (cursor or claude); only with --installed")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Filter installed list by project path; only with --installed")
 	return cmd
 }
@@ -40,8 +40,12 @@ func runSkillList(cmd *cobra.Command, installed bool, target string, projectPath
 	}
 	out := cmd.OutOrStdout()
 	if installed {
-		if target != "" && target != "cursor" && target != "claude" {
-			return fmt.Errorf("--target must be cursor or claude, got %q", target)
+		if target != "" {
+			var err error
+			target, err = validateTarget(target)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Normalize project path for filtering

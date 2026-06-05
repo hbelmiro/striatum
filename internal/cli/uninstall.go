@@ -23,12 +23,10 @@ func newUninstallCmd() *cobra.Command {
 			if name != strings.TrimSpace(raw) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Note: version in %q ignored; uninstalling %q regardless of version\n", strings.TrimSpace(raw), name)
 			}
-			target = strings.TrimSpace(target)
-			if target == "" {
-				return fmt.Errorf("--target is required (cursor or claude)")
-			}
-			if target != "cursor" && target != "claude" {
-				return fmt.Errorf("--target must be cursor or claude, got %q", target)
+			var err error
+			target, err = validateTarget(target)
+			if err != nil {
+				return err
 			}
 			normProject := ""
 			if projectPath != "" {
@@ -41,7 +39,8 @@ func newUninstallCmd() *cobra.Command {
 			return runUninstall(cmd, name, target, normProject)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Uninstall from target: cursor or claude (required)")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Uninstall from target: cursor or claude (required)")
+	_ = cmd.MarkFlagRequired("target")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path (match project-level install)")
 	return cmd
 }

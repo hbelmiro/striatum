@@ -9,6 +9,7 @@ import (
 )
 
 func newPushCmd() *cobra.Command {
+	var manifestFlag string
 	cmd := &cobra.Command{
 		Use:     "push",
 		Short:   "Push the artifact to an OCI registry",
@@ -17,10 +18,6 @@ func newPushCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reference := args[0]
-			manifestFlag, err := cmd.Flags().GetString("manifest")
-			if err != nil {
-				return err
-			}
 			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
 				return err
@@ -42,6 +39,6 @@ func newPushCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
+	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
 	return cmd
 }

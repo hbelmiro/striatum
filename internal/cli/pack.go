@@ -14,6 +14,7 @@ import (
 const defaultLayoutDir = "build"
 
 func newPackCmd() *cobra.Command {
+	var manifestFlag, outputFlag string
 	cmd := &cobra.Command{
 		Use:   "pack",
 		Short: "Bundle the artifact into a local OCI Image Layout directory (default <project>/build/; override with -o / --output)",
@@ -22,14 +23,6 @@ func newPackCmd() *cobra.Command {
 By default the layout is written to <project>/build/. Use -o / --output to set a different directory; paths are relative to the shell’s current working directory (same as striatum pull --output).`,
 		Example: "  striatum pack\n  striatum pack -f packages/my-skill\n  striatum pack -o ./dist\n  striatum pack -f packages/my-skill -o /tmp/my-layout",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manifestFlag, err := cmd.Flags().GetString("manifest")
-			if err != nil {
-				return err
-			}
-			outputFlag, err := cmd.Flags().GetString("output")
-			if err != nil {
-				return err
-			}
 			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
 				return err
@@ -57,7 +50,7 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 			return nil
 		},
 	}
-	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
-	cmd.Flags().StringP("output", "o", "", "OCI layout output directory (default: <project>/build/; relative paths use the current working directory)")
+	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
+	cmd.Flags().StringVarP(&outputFlag, "output", "o", "", "OCI layout output directory (default: <project>/build/; relative paths use the current working directory)")
 	return cmd
 }
