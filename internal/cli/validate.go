@@ -10,16 +10,13 @@ import (
 
 func newValidateCmd() *cobra.Command {
 	var checkDeps bool
+	var manifestFlag string
 	cmd := &cobra.Command{
 		Use:     "validate",
 		Short:   "Validate the local artifact.json",
 		Long:    "Validates schema and that all spec.files exist (paths are relative to the manifest file's directory). Use --check-deps to verify dependencies resolve from their declared sources.",
 		Example: "  striatum validate\n  striatum validate -f path/to/artifact.json\n  striatum validate --check-deps",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manifestFlag, err := cmd.Flags().GetString("manifest")
-			if err != nil {
-				return err
-			}
 			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
 				return err
@@ -57,6 +54,6 @@ func newValidateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&checkDeps, "check-deps", false, "Verify all dependencies exist in their declared registries")
-	cmd.Flags().StringP("manifest", "f", "", manifestFlagUsage)
+	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
 	return cmd
 }

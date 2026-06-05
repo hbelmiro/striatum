@@ -36,17 +36,15 @@ func newInstallCmd() *cobra.Command {
 				return fmt.Errorf("install requires a reference (e.g. host/repo/name:tag, oci:/path:tag, or local directory path)")
 			}
 			reference := args[0]
-			target = strings.TrimSpace(target)
-			if target == "" {
-				return fmt.Errorf("--target is required (cursor or claude)")
-			}
-			if target != "cursor" && target != "claude" {
-				return fmt.Errorf("--target must be cursor or claude, got %q", target)
+			var err error
+			target, err = validateTarget(target)
+			if err != nil {
+				return err
 			}
 			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Install target: cursor or claude (required)")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Install target: cursor or claude (required)")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path for project-level install (e.g. .)")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite conflicting versions")
 	cmd.Flags().BoolVar(&reinstallAll, "reinstall-all", false, "Replay all entries from install DB")
