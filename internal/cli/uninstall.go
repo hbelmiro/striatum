@@ -79,15 +79,33 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		if e.ProjectPath != normProject {
 			continue
 		}
+		if e.InstalledWith != "" {
+			continue
+		}
 		toRemove = append(toRemove, e)
 	}
 	if len(toRemove) == 0 {
+		seen := make(map[string]bool)
+		var roots []string
+		for _, e := range entries {
+			if e.Skill == name && e.Target == target && e.ProjectPath == normProject && e.InstalledWith != "" {
+				for _, r := range strings.Fields(e.InstalledWith) {
+					if !seen[r] {
+						seen[r] = true
+						roots = append(roots, r)
+					}
+				}
+			}
+		}
+		if len(roots) > 0 {
+			return fmt.Errorf("%q is a dependency installed by %s; uninstall the root skill instead", name, strings.Join(roots, ", "))
+		}
 		return fmt.Errorf("skill %q is not installed for target %s", name, target)
 	}
 
 	// Remove target dirs for toRemove
 	for _, e := range toRemove {
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
 		if err != nil {
 			return fmt.Errorf("resolve target for %s: %w", e.Skill, err)
 		}
@@ -101,7 +119,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}
@@ -119,7 +137,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 			break
 		}
 		for _, e := range orphans {
-			targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
 			if err != nil {
 				return fmt.Errorf("resolve target for orphan %s: %w", e.Skill, err)
 			}
@@ -179,7 +197,7 @@ func removeEntries(entries, toRemove []installer.InstalledEntry) []installer.Ins
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}

@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 )
 
-// Targets returns the absolute path of the skills directory for the given target and optional project path.
-// target must be "cursor" or "claude". projectPath should already be absolute when provided;
-// if relative, it is resolved via filepath.Abs. When empty, the user's home directory is used.
-func Targets(target, projectPath string) (string, error) {
+// Targets returns the absolute path of the artifact directory for the given target, project path, and kind.
+// target must be "cursor" or "claude". kind selects the subdirectory: "Prompt" uses "prompts",
+// everything else (including "" for backwards compatibility) uses "skills".
+// projectPath should already be absolute when provided; if relative, it is resolved via filepath.Abs.
+// When empty, the user's home directory is used.
+func Targets(target, projectPath, kind string) (string, error) {
 	switch target {
 	case "cursor", "claude":
 		// ok
@@ -18,6 +20,9 @@ func Targets(target, projectPath string) (string, error) {
 	}
 	subdir := "." + target
 	base := "skills"
+	if kind == "Prompt" {
+		base = "prompts"
+	}
 	var baseDir string
 	if projectPath != "" {
 		if !filepath.IsAbs(projectPath) {
