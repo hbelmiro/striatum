@@ -608,7 +608,7 @@ func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
 		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
 	}
 
-	got := buildRequired(entries, "")
+	got := buildRequired(entries, "", "cursor")
 	if got["Skill|skill-a"] != "1.0.0" {
 		t.Errorf("global scope: skill-a = %q, want 1.0.0", got["Skill|skill-a"])
 	}
@@ -628,7 +628,7 @@ func TestBuildRequired_ProjectScope(t *testing.T) {
 		{Skill: "skill-c", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
 	}
 
-	got := buildRequired(entries, "/proj/a")
+	got := buildRequired(entries, "/proj/a", "cursor")
 	if got["Skill|skill-a"] != "2.0.0" {
 		t.Errorf("project /proj/a: skill-a = %q, want 2.0.0", got["Skill|skill-a"])
 	}
@@ -643,13 +643,40 @@ func TestBuildRequired_ProjectScope(t *testing.T) {
 	}
 }
 
+func TestBuildRequired_FiltersToCurrentTarget(t *testing.T) {
+	entries := []installer.InstalledEntry{
+		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "claude", ProjectPath: ""},
+		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+	}
+
+	got := buildRequired(entries, "", "cursor")
+	if got["Skill|skill-a"] != "1.0.0" {
+		t.Errorf("cursor target: skill-a = %q, want 1.0.0", got["Skill|skill-a"])
+	}
+	if got["Skill|skill-b"] != "1.0.0" {
+		t.Errorf("cursor target: skill-b = %q, want 1.0.0", got["Skill|skill-b"])
+	}
+	if len(got) != 2 {
+		t.Errorf("cursor target: len(required) = %d, want 2", len(got))
+	}
+
+	got2 := buildRequired(entries, "", "claude")
+	if got2["Skill|skill-a"] != "2.0.0" {
+		t.Errorf("claude target: skill-a = %q, want 2.0.0", got2["Skill|skill-a"])
+	}
+	if len(got2) != 1 {
+		t.Errorf("claude target: len(required) = %d, want 1", len(got2))
+	}
+}
+
 func TestBuildRequired_EmptyEntries(t *testing.T) {
-	got := buildRequired(nil, "")
+	got := buildRequired(nil, "", "cursor")
 	if len(got) != 0 {
 		t.Errorf("buildRequired(nil) = %v, want empty map", got)
 	}
 
-	got2 := buildRequired([]installer.InstalledEntry{}, "/proj")
+	got2 := buildRequired([]installer.InstalledEntry{}, "/proj", "cursor")
 	if len(got2) != 0 {
 		t.Errorf("buildRequired(empty slice) = %v, want empty map", got2)
 	}

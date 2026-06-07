@@ -488,7 +488,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		existing = []installer.InstalledEntry{}
 	}
 
-	required := buildRequired(existing, normProject)
+	required := buildRequired(existing, normProject, target)
 	for _, r := range resolved {
 		kind := resolvedKind(r)
 		rKey := kind + "|" + r.Name
@@ -620,12 +620,15 @@ func repullToCache(ctx context.Context, sourceRef, cacheDir, name string) error 
 }
 
 // buildRequired returns a map of kind|name -> version for installed entries in the given scope.
-// Filters to entries matching projectPath to enable per-scope conflict detection.
+// Filters to entries matching projectPath and target to enable per-scope conflict detection.
 // Keys include kind so that a Skill and Prompt with the same name don't conflict.
-func buildRequired(entries []installer.InstalledEntry, projectPath string) map[string]string {
+func buildRequired(entries []installer.InstalledEntry, projectPath, target string) map[string]string {
 	required := make(map[string]string)
 	for _, e := range entries {
 		if e.ProjectPath != projectPath {
+			continue
+		}
+		if e.Target != target {
 			continue
 		}
 		required[e.EffectiveKind()+"|"+e.Skill] = e.Version
