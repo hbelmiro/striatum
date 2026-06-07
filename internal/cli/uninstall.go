@@ -85,10 +85,16 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		toRemove = append(toRemove, e)
 	}
 	if len(toRemove) == 0 {
+		seen := make(map[string]bool)
 		var roots []string
 		for _, e := range entries {
 			if e.Skill == name && e.Target == target && e.ProjectPath == normProject && e.InstalledWith != "" {
-				roots = append(roots, strings.Fields(e.InstalledWith)...)
+				for _, r := range strings.Fields(e.InstalledWith) {
+					if !seen[r] {
+						seen[r] = true
+						roots = append(roots, r)
+					}
+				}
 			}
 		}
 		if len(roots) > 0 {

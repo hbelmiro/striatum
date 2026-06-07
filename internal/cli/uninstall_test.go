@@ -99,6 +99,30 @@ func TestUninstall_DependencyName_ErrorListsRoots(t *testing.T) {
 	}
 }
 
+func TestUninstall_DependencyName_DeduplicatesRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "my-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "my-dep"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall dependency: expected error")
+	}
+	if strings.Count(err.Error(), "root-a") != 1 {
+		t.Errorf("root-a should appear exactly once (deduplicated), got: %v", err)
+	}
+}
+
 func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
