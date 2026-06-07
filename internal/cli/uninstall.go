@@ -85,6 +85,15 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		toRemove = append(toRemove, e)
 	}
 	if len(toRemove) == 0 {
+		var roots []string
+		for _, e := range entries {
+			if e.Skill == name && e.Target == target && e.ProjectPath == normProject && e.InstalledWith != "" {
+				roots = append(roots, strings.Fields(e.InstalledWith)...)
+			}
+		}
+		if len(roots) > 0 {
+			return fmt.Errorf("%q is a dependency installed by %s; uninstall the root skill instead", name, strings.Join(roots, ", "))
+		}
 		return fmt.Errorf("skill %q is not installed for target %s", name, target)
 	}
 

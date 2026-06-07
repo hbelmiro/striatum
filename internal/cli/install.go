@@ -493,7 +493,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		kind := resolvedKind(r)
 		rKey := kind + "|" + r.Name
 		if v, ok := required[rKey]; ok && v != r.Version && !force {
-			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
+			return fmt.Errorf("%s %s@%s conflicts with installed %s@%s (use --force to override)", kind, r.Name, r.Version, r.Name, v)
 		}
 	}
 

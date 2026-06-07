@@ -73,6 +73,32 @@ func TestUninstall_UnknownNameErrors(t *testing.T) {
 	}
 }
 
+func TestUninstall_DependencyName_ErrorListsRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "my-dep"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall dependency: expected error")
+	}
+	if !strings.Contains(err.Error(), "dependency") {
+		t.Errorf("error should mention dependency, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "root-a") {
+		t.Errorf("error should list root skill(s), got: %v", err)
+	}
+}
+
 func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
