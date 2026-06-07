@@ -9,7 +9,7 @@ import (
 func TestTargets_CursorEmptyProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	got, err := Targets("cursor", "")
+	got, err := Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestTargets_CursorEmptyProject(t *testing.T) {
 func TestTargets_ClaudeEmptyProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	got, err := Targets("claude", "")
+	got, err := Targets("claude", "", "Skill")
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestTargets_ClaudeEmptyProject(t *testing.T) {
 
 func TestTargets_CursorWithProject(t *testing.T) {
 	proj := t.TempDir()
-	got, err := Targets("cursor", proj)
+	got, err := Targets("cursor", proj, "Skill")
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestTargets_CursorWithProject(t *testing.T) {
 
 func TestTargets_ClaudeWithProject(t *testing.T) {
 	proj := t.TempDir()
-	got, err := Targets("claude", proj)
+	got, err := Targets("claude", proj, "Skill")
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
@@ -56,12 +56,50 @@ func TestTargets_ClaudeWithProject(t *testing.T) {
 	}
 }
 
+func TestTargets_PromptKind_ReturnsPromptsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Targets("claude", "", "Prompt")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(home, ".claude", "prompts")
+	if got != want {
+		t.Errorf("Targets(claude, \"\", Prompt) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_PromptKind_CursorWithProject(t *testing.T) {
+	proj := t.TempDir()
+	got, err := Targets("cursor", proj, "Prompt")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(proj, ".cursor", "prompts")
+	if got != want {
+		t.Errorf("Targets(cursor, proj, Prompt) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_EmptyKind_DefaultsToSkills(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Targets("claude", "", "")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(home, ".claude", "skills")
+	if got != want {
+		t.Errorf("Targets(claude, \"\", \"\") = %q, want %q", got, want)
+	}
+}
+
 func TestTargets_InvalidTarget(t *testing.T) {
-	_, err := Targets("all", "")
+	_, err := Targets("all", "", "Skill")
 	if err == nil {
 		t.Error("Targets(all) want error")
 	}
-	_, err = Targets("", "")
+	_, err = Targets("", "", "Skill")
 	if err == nil {
 		t.Error("Targets(empty) want error")
 	}

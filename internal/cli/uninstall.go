@@ -79,6 +79,9 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		if e.ProjectPath != normProject {
 			continue
 		}
+		if e.InstalledWith != "" {
+			continue
+		}
 		toRemove = append(toRemove, e)
 	}
 	if len(toRemove) == 0 {
@@ -87,7 +90,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 
 	// Remove target dirs for toRemove
 	for _, e := range toRemove {
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
 		if err != nil {
 			return fmt.Errorf("resolve target for %s: %w", e.Skill, err)
 		}
@@ -101,7 +104,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}
@@ -119,7 +122,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 			break
 		}
 		for _, e := range orphans {
-			targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
 			if err != nil {
 				return fmt.Errorf("resolve target for orphan %s: %w", e.Skill, err)
 			}
@@ -179,7 +182,7 @@ func removeEntries(entries, toRemove []installer.InstalledEntry) []installer.Ins
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}

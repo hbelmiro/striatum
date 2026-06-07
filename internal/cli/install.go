@@ -61,7 +61,7 @@ func runReinstallAll(cmd *cobra.Command) error {
 	}
 	for i := range entries {
 		e := &entries[i]
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath)
+		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
 		if err != nil {
 			e.Status = "error"
 			e.LastError = err.Error()
@@ -487,28 +487,24 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if existing == nil {
 		existing = []installer.InstalledEntry{}
 	}
-	installable := make([]resolver.ResolvedArtifact, 0, len(resolved))
-	for _, r := range resolved {
-		if r.Manifest != nil && r.Manifest.Kind == "Prompt" {
-			continue
-		}
-		installable = append(installable, r)
-	}
 
 	required := buildRequired(existing, normProject)
-	for _, r := range installable {
-		if v, ok := required[r.Name]; ok && v != r.Version && !force {
+	for _, r := range resolved {
+		kind := resolvedKind(r)
+		rKey := kind + "|" + r.Name
+		if v, ok := required[rKey]; ok && v != r.Version && !force {
 			return fmt.Errorf("%s@%s conflicts with installed %s@%s (use --force to override)", r.Name, r.Version, r.Name, v)
 		}
 	}
 
-	targetDir, err := installer.Targets(target, projectPath)
-	if err != nil {
-		return fmt.Errorf("resolve target dir: %w", err)
-	}
-	for _, r := range installable {
+	for _, r := range resolved {
+		kind := resolvedKind(r)
+		td, err := installer.Targets(target, projectPath, kind)
+		if err != nil {
+			return fmt.Errorf("resolve target dir for %s: %w", r.Name, err)
+		}
 		cd := installer.CacheDir(r.Name, r.Version)
-		if err := installer.InstallToTarget(cd, targetDir, r.Name); err != nil {
+		if err := installer.InstallToTarget(cd, td, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
 		}
 	}
@@ -518,10 +514,11 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	byKey := make(map[string]*installer.InstalledEntry)
 	for i := range existing {
 		e := &existing[i]
-		key := e.Skill + "|" + e.Target + "|" + e.ProjectPath
+		key := e.EffectiveKind() + "|" + e.Skill + "|" + e.Target + "|" + e.ProjectPath
 		byKey[key] = e
 	}
-	for _, r := range installable {
+	for _, r := range resolved {
+		kind := resolvedKind(r)
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {
 			installedWith = ""
@@ -530,12 +527,13 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		if installedWith == "" {
 			reg = rootSourceRef
 		}
-		key := r.Name + "|" + target + "|" + normProject
+		key := kind + "|" + r.Name + "|" + target + "|" + normProject
 		if prev, ok := byKey[key]; ok && installedWith != "" {
 			installedWith = mergeInstalledWith(prev.InstalledWith, installedWith)
 		}
 		byKey[key] = &installer.InstalledEntry{
 			Skill:         r.Name,
+			Kind:          kind,
 			Version:       r.Version,
 			Registry:      reg,
 			Target:        target,
@@ -554,6 +552,9 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		if a.Skill != b.Skill {
 			return a.Skill < b.Skill
 		}
+		if a.EffectiveKind() != b.EffectiveKind() {
+			return a.EffectiveKind() < b.EffectiveKind()
+		}
 		if a.Target != b.Target {
 			return a.Target < b.Target
 		}
@@ -562,8 +563,15 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	if err := installer.SaveInstalled(newEntries); err != nil {
 		return fmt.Errorf("save installed: %w", err)
 	}
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(installable), "artifact(s) to", targetDir)
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(resolved), "artifact(s)")
 	return nil
+}
+
+func resolvedKind(r resolver.ResolvedArtifact) string {
+	if r.Manifest != nil && r.Manifest.Kind != "" {
+		return r.Manifest.Kind
+	}
+	return "Skill"
 }
 
 // mergeInstalledWith adds rootName to the space-separated list in existing,
@@ -611,15 +619,16 @@ func repullToCache(ctx context.Context, sourceRef, cacheDir, name string) error 
 	return atomicReplaceCacheDir(created, cacheDir)
 }
 
-// buildRequired returns a map of skill name -> version for installed entries in the given scope.
+// buildRequired returns a map of kind|name -> version for installed entries in the given scope.
 // Filters to entries matching projectPath to enable per-scope conflict detection.
+// Keys include kind so that a Skill and Prompt with the same name don't conflict.
 func buildRequired(entries []installer.InstalledEntry, projectPath string) map[string]string {
 	required := make(map[string]string)
 	for _, e := range entries {
 		if e.ProjectPath != projectPath {
 			continue
 		}
-		required[e.Skill] = e.Version
+		required[e.EffectiveKind()+"|"+e.Skill] = e.Version
 	}
 	return required
 }

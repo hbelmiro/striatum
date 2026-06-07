@@ -104,7 +104,7 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	}
 	writeArtifact(t, cacheDirA, manifestA)
 	writeArtifact(t, cacheDirB, manifestB)
-	targetDir, err := installer.Targets("cursor", "")
+	targetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestUninstall_AcceptsNameVersionRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeArtifact(t, cacheDir, manifest)
-	targetDir, err := installer.Targets("cursor", "")
+	targetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestUninstall_PreservesNonOrphanDeps(t *testing.T) {
 	writeArtifact(t, cacheDirB, manifestB)
 	writeArtifact(t, cacheDirC, manifestC)
 
-	targetDir, err := installer.Targets("cursor", "")
+	targetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 		writeArtifact(t, d, m)
 	}
 
-	targetDir, err := installer.Targets("cursor", "")
+	targetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 	}
 	writeArtifact(t, cacheDirA, manifestA)
 
-	targetDir, err := installer.Targets("cursor", "")
+	targetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
 	writeArtifact(t, cacheDir, manifest)
 
 	// Install globally
-	globalTargetDir, err := installer.Targets("cursor", "")
+	globalTargetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
 	}
 
 	// Install for project
-	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	projectTargetDir, err := installer.Targets("cursor", projectDir, "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +542,7 @@ func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
 	writeArtifact(t, cacheDir, manifest)
 
 	// Install globally
-	globalTargetDir, err := installer.Targets("cursor", "")
+	globalTargetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +554,7 @@ func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
 	}
 
 	// Install for project
-	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	projectTargetDir, err := installer.Targets("cursor", projectDir, "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +626,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	}
 
 	// Install to global target
-	globalTargetDir, err := installer.Targets("cursor", "")
+	globalTargetDir, err := installer.Targets("cursor", "", "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +641,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	}
 
 	// Install to project target
-	projectTargetDir, err := installer.Targets("cursor", projectDir)
+	projectTargetDir, err := installer.Targets("cursor", projectDir, "Skill")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,6 +692,173 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	}
 	if entries[0].Skill != "root-b" || entries[0].ProjectPath != projectDir {
 		t.Errorf("remaining entry = %+v, want root-b in project scope", entries[0])
+	}
+}
+
+func TestUninstall_RemovesPromptOrphansFromPromptsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifestA := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	manifestPrompt := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: "prompt-dep", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "prompt.md", Files: []string{"prompt.md"}},
+	}
+
+	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("prompt-dep", "1.0.0")
+	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cacheDirPrompt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, cacheDirA, manifestA)
+	writeArtifact(t, cacheDirPrompt, manifestPrompt)
+
+	skillsDir, err := installer.Targets("cursor", "", "Skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptsDir, err := installer.Targets("cursor", "", "Prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(promptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDirA, skillsDir, "skill-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDirPrompt, promptsDir, "prompt-dep"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "prompt-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skillsDir, "skill-a")); !os.IsNotExist(err) {
+		t.Error("skill-a dir should be removed from skills/")
+	}
+	if _, err := os.Stat(filepath.Join(promptsDir, "prompt-dep")); !os.IsNotExist(err) {
+		t.Error("prompt-dep (orphan) dir should be removed from prompts/")
+	}
+	entries, err2 := installer.LoadInstalled()
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty after uninstall, got %d entries", len(entries))
+	}
+}
+
+func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	cacheDirSkill := installer.CacheDir("shared-name", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("shared-name", "2.0.0")
+	cacheDirRoot := installer.CacheDir("root-skill", "1.0.0")
+	for _, d := range []string{cacheDirSkill, cacheDirPrompt, cacheDirRoot} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeArtifact(t, cacheDirRoot, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2", Kind: "Skill",
+		Metadata: artifact.Metadata{Name: "root-skill", Version: "1.0.0"},
+		Spec:     artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+	writeArtifact(t, cacheDirSkill, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2", Kind: "Skill",
+		Metadata: artifact.Metadata{Name: "shared-name", Version: "1.0.0"},
+		Spec:     artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+	writeArtifact(t, cacheDirPrompt, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2", Kind: "Prompt",
+		Metadata: artifact.Metadata{Name: "shared-name", Version: "2.0.0"},
+		Spec:     artifact.Spec{Entrypoint: "prompt.md", Files: []string{"prompt.md"}},
+	})
+
+	skillsDir, _ := installer.Targets("cursor", "", "Skill")
+	promptsDir, _ := installer.Targets("cursor", "", "Prompt")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(promptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDirRoot, skillsDir, "root-skill"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDirSkill, skillsDir, "shared-name"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDirPrompt, promptsDir, "shared-name"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "root-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "shared-name", Kind: "Prompt", Version: "2.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-skill"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+
+	// root-skill should be removed
+	if _, err := os.Stat(filepath.Join(skillsDir, "root-skill")); !os.IsNotExist(err) {
+		t.Error("root-skill should be removed from skills/")
+	}
+	// Prompt "shared-name" is an orphan and should be removed from prompts/
+	if _, err := os.Stat(filepath.Join(promptsDir, "shared-name")); !os.IsNotExist(err) {
+		t.Error("prompt shared-name (orphan) should be removed from prompts/")
+	}
+	// Skill "shared-name" is a root and should NOT be removed
+	if _, err := os.Stat(filepath.Join(skillsDir, "shared-name")); os.IsNotExist(err) {
+		t.Error("skill shared-name (root) should still exist in skills/")
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (Skill shared-name), got %d", len(entries))
+	}
+	if entries[0].Skill != "shared-name" || entries[0].EffectiveKind() != "Skill" {
+		t.Errorf("remaining entry = %+v, want Skill shared-name", entries[0])
 	}
 }
 

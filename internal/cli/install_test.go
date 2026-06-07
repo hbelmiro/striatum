@@ -388,7 +388,7 @@ func TestInstall_ReinstallAll_EmptyRegistry_Errors(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	targetDir, _ := installer.Targets("cursor", "")
+	targetDir, _ := installer.Targets("cursor", "", "Skill")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -414,6 +414,58 @@ func TestInstall_ReinstallAll_EmptyRegistry_Errors(t *testing.T) {
 		if e.Skill == "orphan" && e.Status != "error" {
 			t.Errorf("orphan entry should be marked error, got %q", e.Status)
 		}
+	}
+}
+
+func TestInstall_ReinstallAll_RoutesPromptToPromptsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	skillCache := installer.CacheDir("my-skill", "1.0.0")
+	promptCache := installer.CacheDir("my-prompt", "1.0.0")
+	if err := os.MkdirAll(skillCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(promptCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, skillCache, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2", Kind: "Skill",
+		Metadata: artifact.Metadata{Name: "my-skill", Version: "1.0.0"},
+		Spec:     artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+	if err := os.WriteFile(filepath.Join(promptCache, "artifact.json"), []byte(`{"apiVersion":"striatum.dev/v1alpha2","kind":"Prompt","metadata":{"name":"my-prompt","version":"1.0.0"},"spec":{"entrypoint":"prompt.md","files":["prompt.md"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptCache, "prompt.md"), []byte("# prompt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Skill: "my-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Skill: "my-prompt", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "my-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill", "install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+
+	skillsDir, _ := installer.Targets("cursor", "", "Skill")
+	promptsDir, _ := installer.Targets("cursor", "", "Prompt")
+
+	if _, err := os.Stat(filepath.Join(skillsDir, "my-skill", "SKILL.md")); err != nil {
+		t.Errorf("my-skill should be reinstalled to skills/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(promptsDir, "my-prompt", "prompt.md")); err != nil {
+		t.Errorf("my-prompt should be reinstalled to prompts/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skillsDir, "my-prompt")); err == nil {
+		t.Error("my-prompt should NOT be in skills/ dir")
 	}
 }
 
@@ -551,18 +603,17 @@ func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
 
 func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
-		{Skill: "skill-a", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj"},
-		{Skill: "skill-b", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj"},
+		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
 	}
 
-	// Global scope (ProjectPath = "")
 	got := buildRequired(entries, "")
-	if got["skill-a"] != "1.0.0" {
-		t.Errorf("global scope: skill-a = %q, want 1.0.0", got["skill-a"])
+	if got["Skill|skill-a"] != "1.0.0" {
+		t.Errorf("global scope: skill-a = %q, want 1.0.0", got["Skill|skill-a"])
 	}
-	if got["skill-b"] != "1.0.0" {
-		t.Errorf("global scope: skill-b = %q, want 1.0.0", got["skill-b"])
+	if got["Skill|skill-b"] != "1.0.0" {
+		t.Errorf("global scope: skill-b = %q, want 1.0.0", got["Skill|skill-b"])
 	}
 	if len(got) != 2 {
 		t.Errorf("global scope: len(required) = %d, want 2", len(got))
@@ -571,21 +622,20 @@ func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
 
 func TestBuildRequired_ProjectScope(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
-		{Skill: "skill-a", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj/a"},
-		{Skill: "skill-b", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/a"},
-		{Skill: "skill-c", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
+		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Skill: "skill-c", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
 	}
 
-	// Project scope /proj/a
 	got := buildRequired(entries, "/proj/a")
-	if got["skill-a"] != "2.0.0" {
-		t.Errorf("project /proj/a: skill-a = %q, want 2.0.0", got["skill-a"])
+	if got["Skill|skill-a"] != "2.0.0" {
+		t.Errorf("project /proj/a: skill-a = %q, want 2.0.0", got["Skill|skill-a"])
 	}
-	if got["skill-b"] != "1.0.0" {
-		t.Errorf("project /proj/a: skill-b = %q, want 1.0.0", got["skill-b"])
+	if got["Skill|skill-b"] != "1.0.0" {
+		t.Errorf("project /proj/a: skill-b = %q, want 1.0.0", got["Skill|skill-b"])
 	}
-	if _, hasC := got["skill-c"]; hasC {
+	if _, hasC := got["Skill|skill-c"]; hasC {
 		t.Errorf("project /proj/a: should NOT have skill-c (it's in /proj/b)")
 	}
 	if len(got) != 2 {
@@ -1536,21 +1586,41 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install skill with prompt dep: %v", err)
 	}
-	if !strings.Contains(out.String(), "Installed 1") {
-		t.Errorf("expected 1 artifact installed (Prompt dep excluded), got %q", out.String())
+	if !strings.Contains(out.String(), "Installed 2") {
+		t.Errorf("expected 2 artifacts installed (Skill + Prompt dep), got %q", out.String())
 	}
 
 	rootTarget := filepath.Join(home, ".cursor", "skills", "skill-with-prompt")
 	if _, err := os.Stat(filepath.Join(rootTarget, "SKILL.md")); err != nil {
-		t.Errorf("root SKILL.md not installed: %v", err)
+		t.Errorf("root SKILL.md not installed to skills/: %v", err)
 	}
-	depTarget := filepath.Join(home, ".cursor", "skills", depName)
-	if _, err := os.Stat(depTarget); err == nil {
-		t.Errorf("prompt dep should NOT be installed to target dir, but %s exists", depTarget)
+	promptTarget := filepath.Join(home, ".cursor", "prompts", depName)
+	if _, err := os.Stat(filepath.Join(promptTarget, "severity-rubric.md")); err != nil {
+		t.Errorf("prompt dep should be installed to prompts/ dir: %v", err)
+	}
+	skillsDirPrompt := filepath.Join(home, ".cursor", "skills", depName)
+	if _, err := os.Stat(skillsDirPrompt); err == nil {
+		t.Errorf("prompt dep should NOT be in skills/ dir, but %s exists", skillsDirPrompt)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 DB entries, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Skill == "skill-with-prompt" && e.Kind != "Skill" {
+			t.Errorf("root entry Kind = %q, want Skill", e.Kind)
+		}
+		if e.Skill == depName && e.Kind != "Prompt" {
+			t.Errorf("prompt dep entry Kind = %q, want Prompt", e.Kind)
+		}
 	}
 }
 
-func TestInstall_LocalDir_PromptDepSkipsConflictCheck(t *testing.T) {
+func TestInstall_LocalDir_CrossKindSameNameNoConflict(t *testing.T) {
 	home := t.TempDir()
 	skillDir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
@@ -1563,6 +1633,7 @@ func TestInstall_LocalDir_PromptDepSkipsConflictCheck(t *testing.T) {
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{{
 		Skill:   depName,
+		Kind:    "Skill",
 		Version: "1.0.0",
 		Target:  "cursor",
 		Status:  "ok",
@@ -1642,7 +1713,16 @@ func TestInstall_LocalDir_PromptDepSkipsConflictCheck(t *testing.T) {
 	root.SetOut(out)
 	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("prompt dep should not trigger conflict check, got: %v", err)
+		t.Fatalf("cross-kind same name should not conflict (different dirs): %v", err)
+	}
+
+	skillsDir := filepath.Join(home, ".cursor", "skills", depName)
+	promptsDir := filepath.Join(home, ".cursor", "prompts", depName)
+	if _, err := os.Stat(skillsDir); err == nil {
+		t.Errorf("prompt dep should NOT be in skills/ dir")
+	}
+	if _, err := os.Stat(filepath.Join(promptsDir, "prompt.md")); err != nil {
+		t.Errorf("prompt dep should be in prompts/ dir: %v", err)
 	}
 }
 
