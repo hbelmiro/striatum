@@ -47,7 +47,7 @@ The flag treats a path as a manifest **file** only when its final component is n
 
 - `striatum init` -- scaffold an `artifact.json` (requires `--name`, `--kind` (Skill, Prompt, Workflow), `--entrypoint`)
 - `striatum validate` -- validate local artifact and optionally check dependencies
-- `striatum pack` -- bundle artifact into a local OCI Image Layout at `<project>/build/` by default; optional `-o` / `--output` sets another layout directory. For Workflow artifacts with Prompt dependencies, pack resolves and inlines the prompt files as extra OCI layers under `deps/<prompt-name>/`.
+- `striatum pack` -- bundle artifact into a local OCI Image Layout at `<project>/build/` by default; optional `-o` / `--output` sets another layout directory. For Workflow artifacts with Prompt dependencies, pack resolves and inlines the prompt files as extra OCI layers under `deps/<prompt-name>/`; missing prompt dependencies are fetched automatically.
 - `striatum push <reference>` -- push to an OCI registry
 - `striatum pull <reference>` -- download artifact and dependencies to the output directory (default: current working directory; each artifact in `<output>/<name>/`) and into the Striatum cache; use `--no-cache` for output only
 - `striatum inspect <reference>` -- show remote artifact metadata

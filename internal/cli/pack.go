@@ -46,7 +46,7 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 			if err := os.MkdirAll(layoutPath, 0o755); err != nil {
 				return fmt.Errorf("create layout dir: %w", err)
 			}
-			depFiles, err := resolvePromptDeps(cmd.Context(), m)
+			depFiles, err := resolvePromptDeps(cmd.Context(), m, defaultPromptPuller)
 			if err != nil {
 				return err
 			}
@@ -62,8 +62,24 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 	return cmd
 }
 
-func resolvePromptDeps(ctx context.Context, m *artifact.Manifest) ([]oci.DepFile, error) {
-	if m.Kind != "Workflow" || len(m.Dependencies) == 0 {
+type promptDepPuller func(ctx context.Context, r resolver.ResolvedArtifact) error
+
+func defaultPromptPuller(ctx context.Context, r resolver.ResolvedArtifact) error {
+	cacheDir := installer.CacheDir(r.Name, r.Version)
+	parentDir := filepath.Dir(cacheDir)
+	created, cleanup, err := pullToStagingDir(parentDir, r.Name, func(stagingDir string) error {
+		return pullDependency(ctx, r.Dependency, stagingDir)
+	})
+	if err != nil {
+		cleanup()
+		return err
+	}
+	defer cleanup()
+	return atomicReplaceCacheDir(created, cacheDir)
+}
+
+func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDepPuller) ([]oci.DepFile, error) {
+	if len(m.Dependencies) == 0 {
 		return nil, nil
 	}
 	fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
@@ -77,11 +93,25 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest) ([]oci.DepFile
 			continue
 		}
 		cacheDir := installer.CacheDir(r.Name, r.Version)
+		needsPull := false
 		for _, f := range r.Manifest.Spec.Files {
-			depFiles = append(depFiles, oci.DepFile{
-				AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
-				DiskPath:       filepath.Join(cacheDir, f),
-			})
+			if _, err := os.Stat(filepath.Join(cacheDir, f)); err != nil {
+				needsPull = true
+				break
+			}
+		}
+		if needsPull {
+			if err := pull(ctx, r); err != nil {
+				return nil, fmt.Errorf("pull prompt dependency %q: %w", r.Name, err)
+			}
+		}
+		if m.Kind == "Workflow" {
+			for _, f := range r.Manifest.Spec.Files {
+				depFiles = append(depFiles, oci.DepFile{
+					AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
+					DiskPath:       filepath.Join(cacheDir, f),
+				})
+			}
 		}
 	}
 	return depFiles, nil

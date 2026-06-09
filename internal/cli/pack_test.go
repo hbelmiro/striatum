@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/resolver"
 	ocistore "oras.land/oras-go/v2/content/oci"
 )
 
@@ -335,6 +338,58 @@ func TestPack_Workflow_WithPromptDep_InlinesPromptFiles(t *testing.T) {
 	}
 }
 
+func TestPack_Workflow_PromptDepNotInCache_AttemptsAutoPull(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Set up a Prompt manifest in cache but WITHOUT the actual file
+	promptCacheDir := installer.CacheDir("missing-prompt", "1.0.0")
+	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	promptManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: "missing-prompt", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "rubric.md", Files: []string{"rubric.md"}},
+	}
+	promptData, _ := json.Marshal(promptManifest)
+	if err := os.WriteFile(filepath.Join(promptCacheDir, "artifact.json"), promptData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// NOTE: rubric.md is intentionally NOT written to cache
+
+	wfDir := t.TempDir()
+	t.Chdir(wfDir)
+	wfManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "wf-missing-dep", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/missing-prompt", Tag: "1.0.0"},
+		},
+	}
+	wfData, _ := json.Marshal(wfManifest)
+	if err := os.WriteFile(filepath.Join(wfDir, "artifact.json"), wfData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "run.js"), []byte("// wf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"pack"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("pack with missing prompt dep file and unreachable registry: expected error")
+	}
+	if !strings.Contains(err.Error(), "pull prompt dependency") {
+		t.Errorf("error should mention 'pull prompt dependency', got: %v", err)
+	}
+}
+
 func TestPack_Workflow_NoDeps_NormalBehavior(t *testing.T) {
 	wfDir := t.TempDir()
 	t.Chdir(wfDir)
@@ -531,5 +586,171 @@ func TestPack_Workflow_MixedDeps_OnlyInlinesPrompts(t *testing.T) {
 	skillPath := filepath.Join(pullDir, "mixed-wf", "deps", "helper-skill")
 	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
 		t.Errorf("Skill dep should NOT be inlined, but deps/helper-skill exists")
+	}
+}
+
+func setupPromptInCache(t *testing.T, name, version, fileName, content string, writeFile bool) {
+	t.Helper()
+	cacheDir := installer.CacheDir(name, version)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: name, Version: version},
+		Spec:       artifact.Spec{Entrypoint: fileName, Files: []string{fileName}},
+	}
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if writeFile {
+		if err := os.WriteFile(filepath.Join(cacheDir, fileName), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestResolvePromptDeps_AutoPulls_WhenFilesNotInCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	setupPromptInCache(t, "my-prompt", "1.0.0", "rubric.md", "", false)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/my-prompt", Tag: "1.0.0"},
+		},
+	}
+
+	pullCalled := false
+	fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+		pullCalled = true
+		cacheDir := installer.CacheDir(r.Name, r.Version)
+		return os.WriteFile(filepath.Join(cacheDir, "rubric.md"), []byte("# Rubric content"), 0o644)
+	}
+
+	deps, err := resolvePromptDeps(context.Background(), m, fakePuller)
+	if err != nil {
+		t.Fatalf("resolvePromptDeps: %v", err)
+	}
+	if !pullCalled {
+		t.Error("puller was not called when files were missing from cache")
+	}
+	if len(deps) != 1 {
+		t.Fatalf("len(deps) = %d, want 1", len(deps))
+	}
+	if deps[0].AnnotationPath != "deps/my-prompt/rubric.md" {
+		t.Errorf("AnnotationPath = %q, want %q", deps[0].AnnotationPath, "deps/my-prompt/rubric.md")
+	}
+}
+
+func TestResolvePromptDeps_PullFails_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	setupPromptInCache(t, "fail-prompt", "1.0.0", "rubric.md", "", false)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/fail-prompt", Tag: "1.0.0"},
+		},
+	}
+
+	failPuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+		return fmt.Errorf("registry unavailable")
+	}
+
+	_, err := resolvePromptDeps(context.Background(), m, failPuller)
+	if err == nil {
+		t.Fatal("expected error when puller fails")
+	}
+	if !strings.Contains(err.Error(), "pull prompt dependency") {
+		t.Errorf("error should mention 'pull prompt dependency', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "registry unavailable") {
+		t.Errorf("error should wrap puller error, got: %v", err)
+	}
+}
+
+func TestResolvePromptDeps_FilesInCache_SkipsPull(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	setupPromptInCache(t, "cached-prompt", "1.0.0", "rubric.md", "# Already here", true)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/cached-prompt", Tag: "1.0.0"},
+		},
+	}
+
+	pullCalled := false
+	fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+		pullCalled = true
+		return nil
+	}
+
+	deps, err := resolvePromptDeps(context.Background(), m, fakePuller)
+	if err != nil {
+		t.Fatalf("resolvePromptDeps: %v", err)
+	}
+	if pullCalled {
+		t.Error("puller should NOT be called when files are already in cache")
+	}
+	if len(deps) != 1 {
+		t.Fatalf("len(deps) = %d, want 1", len(deps))
+	}
+}
+
+func TestResolvePromptDeps_Skill_AutoPullsButNoInline(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	setupPromptInCache(t, "skill-prompt", "1.0.0", "rubric.md", "", false)
+
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "my-skill", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/skill-prompt", Tag: "1.0.0"},
+		},
+	}
+
+	pullCalled := false
+	fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+		pullCalled = true
+		cacheDir := installer.CacheDir(r.Name, r.Version)
+		return os.WriteFile(filepath.Join(cacheDir, "rubric.md"), []byte("# Rubric"), 0o644)
+	}
+
+	deps, err := resolvePromptDeps(context.Background(), m, fakePuller)
+	if err != nil {
+		t.Fatalf("resolvePromptDeps: %v", err)
+	}
+	if !pullCalled {
+		t.Error("puller should be called for Skill deps too")
+	}
+	if len(deps) != 0 {
+		t.Errorf("len(deps) = %d, want 0 (Skills should not inline prompt deps)", len(deps))
 	}
 }
