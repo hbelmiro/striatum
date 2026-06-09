@@ -21,7 +21,7 @@ import (
 
 func TestInstall_MissingTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"install", "localhost:5000/skills/foo:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("install without --target: expected error")
@@ -33,7 +33,7 @@ func TestInstall_MissingTargetErrors(t *testing.T) {
 
 func TestInstall_InvalidTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "all", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "all", "localhost:5000/skills/foo:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("install --target all: expected error")
@@ -70,7 +70,7 @@ func TestInstall_HappyPathNoDeps(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":install-test:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":install-test:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestInstall_FromCache_WhenRefMapsToCachedSkill_SucceedsWithoutInspect(t *te
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "foo:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "foo:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install from cache: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestInstall_ShortRefNotInCache_Errors(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "not-cached:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "not-cached:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("install short ref not in cache: expected error")
@@ -320,14 +320,14 @@ func TestInstall_ConflictWithoutForce_Errors(t *testing.T) {
 
 	// Install v1 first
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "conflict-skill:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "conflict-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
 
 	// Try to install v2 without --force
 	root2 := NewRootCommand()
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "conflict-skill:2.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "conflict-skill:2.0.0"})
 	err := root2.Execute()
 	if err == nil {
 		t.Fatal("install conflicting version without --force: expected error")
@@ -366,7 +366,7 @@ func TestInstall_ConflictWithForce_Succeeds(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "force-skill:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "force-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestInstall_ConflictWithForce_Succeeds(t *testing.T) {
 	out := &strings.Builder{}
 	root2 := NewRootCommand()
 	root2.SetOut(out)
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "--force", "force-skill:2.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "--force", "force-skill:2.0.0"})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("install with --force: %v", err)
 	}
@@ -394,13 +394,13 @@ func TestInstall_ReinstallAll_EmptyRegistry_Errors(t *testing.T) {
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "orphan", Version: "1.0.0", Registry: "", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "orphan", Kind: "Skill", Version: "1.0.0", Registry: "", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--reinstall-all"})
+	root.SetArgs([]string{"install", "--reinstall-all"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("reinstall-all with empty registry: expected error")
@@ -411,7 +411,7 @@ func TestInstall_ReinstallAll_EmptyRegistry_Errors(t *testing.T) {
 
 	entries, _ := installer.LoadInstalled()
 	for _, e := range entries {
-		if e.Skill == "orphan" && e.Status != "error" {
+		if e.Name == "orphan" && e.Status != "error" {
 			t.Errorf("orphan entry should be marked error, got %q", e.Status)
 		}
 	}
@@ -443,14 +443,14 @@ func TestInstall_ReinstallAll_RoutesPromptToPromptsDir(t *testing.T) {
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "my-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "my-prompt", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "my-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-prompt", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "my-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--reinstall-all"})
+	root.SetArgs([]string{"install", "--reinstall-all"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("reinstall-all: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestInstall_OCI_DigestCacheHit_SkipsPull(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestInstall_OCI_DigestCacheHit_SkipsPull(t *testing.T) {
 	out := &strings.Builder{}
 	root2 := NewRootCommand()
 	root2.SetOut(out)
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":digest-cache-hit:1.0.0"})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("second install (cache hit): %v", err)
 	}
@@ -554,7 +554,7 @@ func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
@@ -583,7 +583,7 @@ func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
 	out := &strings.Builder{}
 	root2 := NewRootCommand()
 	root2.SetOut(out)
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":digest-mismatch:1.0.0"})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("second install (digest mismatch): %v", err)
 	}
@@ -603,9 +603,9 @@ func TestInstall_OCI_DigestMismatch_Repulls(t *testing.T) {
 
 func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
-		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj"},
-		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Name: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj"},
+		{Name: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
 	}
 
 	got := buildRequired(entries, "", "cursor")
@@ -622,10 +622,10 @@ func TestBuildRequired_FiltersToCurrentScope(t *testing.T) {
 
 func TestBuildRequired_ProjectScope(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
-		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj/a"},
-		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/a"},
-		{Skill: "skill-c", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Name: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Name: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/a"},
+		{Name: "skill-c", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "/proj/b"},
 	}
 
 	got := buildRequired(entries, "/proj/a", "cursor")
@@ -645,9 +645,9 @@ func TestBuildRequired_ProjectScope(t *testing.T) {
 
 func TestBuildRequired_FiltersToCurrentTarget(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
-		{Skill: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "claude", ProjectPath: ""},
-		{Skill: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
+		{Name: "skill-a", Kind: "Skill", Version: "2.0.0", Target: "claude", ProjectPath: ""},
+		{Name: "skill-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: ""},
 	}
 
 	got := buildRequired(entries, "", "cursor")
@@ -713,7 +713,7 @@ func TestInstall_CrossScopeNoConflict(t *testing.T) {
 
 	// Install skill-a@1.0.0 globally
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "skill-a:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install global: %v", err)
 	}
@@ -724,7 +724,7 @@ func TestInstall_CrossScopeNoConflict(t *testing.T) {
 	// Install skill-a@2.0.0 for project (different scope)
 	// This should succeed WITHOUT --force because it's a different scope
 	root2 := NewRootCommand()
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "--project", projectDir, "skill-a:2.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "--project", projectDir, "skill-a:2.0.0"})
 	err := root2.Execute()
 	if err != nil {
 		t.Fatalf("install project (cross-scope): expected success, got error: %v", err)
@@ -739,9 +739,9 @@ func TestInstall_CrossScopeNoConflict(t *testing.T) {
 	var globalEntry, projectEntry *installer.InstalledEntry
 	for i := range entries {
 		e := &entries[i]
-		if e.Skill == "skill-a" && e.ProjectPath == "" {
+		if e.Name == "skill-a" && e.ProjectPath == "" {
 			globalEntry = e
-		} else if e.Skill == "skill-a" && e.ProjectPath == projectDir {
+		} else if e.Name == "skill-a" && e.ProjectPath == projectDir {
 			projectEntry = e
 		}
 	}
@@ -790,7 +790,7 @@ func TestInstall_SameScopeConflict(t *testing.T) {
 
 	// Install skill-a@1.0.0 globally
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "skill-a:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install global v1.0.0: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestInstall_SameScopeConflict(t *testing.T) {
 	// Try to install skill-a@2.0.0 globally (same scope)
 	// This should FAIL without --force
 	root2 := NewRootCommand()
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", "skill-a:2.0.0"})
+	root2.SetArgs([]string{"install", "--target", "cursor", "skill-a:2.0.0"})
 	err := root2.Execute()
 	if err == nil {
 		t.Fatal("install same scope different version: expected error without --force")
@@ -809,6 +809,38 @@ func TestInstall_SameScopeConflict(t *testing.T) {
 }
 
 // --- Local directory install tests ---
+
+func writeLocalArtifact(t *testing.T, dir, kind, name, version, entrypoint string, files map[string]string) *artifact.Manifest {
+	t.Helper()
+	fileNames := make([]string, 0, len(files))
+	for f := range files {
+		fileNames = append(fileNames, f)
+	}
+	sort.Strings(fileNames)
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       kind,
+		Metadata:   artifact.Metadata{Name: name, Version: version},
+		Spec:       artifact.Spec{Entrypoint: entrypoint, Files: fileNames},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for f, content := range files {
+		p := filepath.Join(dir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return manifest
+}
 
 func writeLocalSkill(t *testing.T, dir, name, version, entrypoint string, files map[string]string) *artifact.Manifest {
 	t.Helper()
@@ -855,7 +887,7 @@ func TestInstall_LocalDir_HappyPath(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install from local dir: %v", err)
 	}
@@ -885,7 +917,7 @@ func TestInstall_LocalDir_DotReference(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "claude", "."})
+	root.SetArgs([]string{"install", "--target", "claude", "."})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install from '.': %v", err)
 	}
@@ -895,78 +927,6 @@ func TestInstall_LocalDir_DotReference(t *testing.T) {
 	installed := filepath.Join(home, ".claude", "skills", "dot-skill")
 	if _, err := os.Stat(filepath.Join(installed, "SKILL.md")); err != nil {
 		t.Errorf("SKILL.md not installed: %v", err)
-	}
-}
-
-func TestInstall_LocalDir_RejectsPromptKind(t *testing.T) {
-	promptDir := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("STRIATUM_HOME", home)
-	t.Setenv("HOME", home)
-
-	m := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha2",
-		Kind:       "Prompt",
-		Metadata:   artifact.Metadata{Name: "severity-rubric", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
-	}
-	data, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(promptDir, "artifact.json"), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(promptDir, "severity-rubric.md"), []byte("# Severity Rubric"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", promptDir})
-	err = root.Execute()
-	if err == nil {
-		t.Fatal("expected error when installing a Prompt artifact")
-	}
-	if !strings.Contains(err.Error(), "prompt") || !strings.Contains(err.Error(), "cannot be installed") {
-		t.Errorf("error should explain Prompt cannot be installed, got: %v", err)
-	}
-}
-
-func TestInstall_OCI_RejectsPromptKind(t *testing.T) {
-	baseDir := t.TempDir()
-	layoutDir := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("STRIATUM_HOME", home)
-	t.Setenv("HOME", home)
-
-	manifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha2",
-		Kind:       "Prompt",
-		Metadata:   artifact.Metadata{Name: "oci-prompt", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "rubric.md", Files: []string{"rubric.md"}},
-	}
-	data, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(baseDir, "rubric.md"), []byte("# Rubric"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
-		t.Fatal(err)
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "oci:" + layoutDir + ":oci-prompt:1.0.0"})
-	err = root.Execute()
-	if err == nil {
-		t.Fatal("expected error when installing a Prompt artifact via OCI")
-	}
-	if !strings.Contains(err.Error(), "prompt") || !strings.Contains(err.Error(), "cannot be installed") {
-		t.Errorf("error should explain Prompt cannot be installed, got: %v", err)
 	}
 }
 
@@ -994,7 +954,7 @@ func TestInstall_LocalDir_InvalidManifest(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid manifest")
@@ -1028,7 +988,7 @@ func TestInstall_LocalDir_MissingSpecFile(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for missing spec file")
@@ -1059,7 +1019,7 @@ func TestInstall_LocalDir_CacheCorrectness(t *testing.T) {
 
 	root := NewRootCommand()
 	root.SetOut(&strings.Builder{})
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -1091,7 +1051,7 @@ func TestInstall_LocalDir_DBEntry(t *testing.T) {
 
 	root := NewRootCommand()
 	root.SetOut(&strings.Builder{})
-	root.SetArgs([]string{"skill", "install", "--target", "claude", skillDir})
+	root.SetArgs([]string{"install", "--target", "claude", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -1104,8 +1064,8 @@ func TestInstall_LocalDir_DBEntry(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 	e := entries[0]
-	if e.Skill != "db-test" {
-		t.Errorf("Skill = %q, want db-test", e.Skill)
+	if e.Name != "db-test" {
+		t.Errorf("Name = %q, want db-test", e.Name)
 	}
 	if e.Version != "2.0.0" {
 		t.Errorf("Version = %q, want 2.0.0", e.Version)
@@ -1138,7 +1098,7 @@ func TestInstall_LocalDir_MultipleFiles(t *testing.T) {
 
 	root := NewRootCommand()
 	root.SetOut(&strings.Builder{})
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -1171,7 +1131,7 @@ func TestInstall_LocalDir_ProjectPath(t *testing.T) {
 
 	root := NewRootCommand()
 	root.SetOut(&strings.Builder{})
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "--project", projectDir, skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", "--project", projectDir, skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -1194,7 +1154,7 @@ func TestInstall_LocalDir_AlwaysCopiesFresh(t *testing.T) {
 
 	root := NewRootCommand()
 	root.SetOut(&strings.Builder{})
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
@@ -1205,7 +1165,7 @@ func TestInstall_LocalDir_AlwaysCopiesFresh(t *testing.T) {
 
 	root2 := NewRootCommand()
 	root2.SetOut(&strings.Builder{})
-	root2.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root2.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
@@ -1279,7 +1239,7 @@ func TestInstall_LocalDir_PathTraversalName(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for path traversal in name")
@@ -1313,7 +1273,7 @@ func TestInstall_LocalDir_PathTraversalVersion(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for path traversal in version")
@@ -1352,7 +1312,7 @@ func TestInstall_LocalDir_SymlinkEscape(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for symlink escape")
@@ -1392,7 +1352,7 @@ func TestInstall_LocalDir_PartialCopyCleanup(t *testing.T) {
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error for unreadable spec file during copy")
@@ -1411,7 +1371,7 @@ func TestInstall_LocalDir_DirWithoutManifest(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", emptyDir})
+	root.SetArgs([]string{"install", "--target", "cursor", emptyDir})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected error for directory without artifact.json")
@@ -1502,7 +1462,7 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -1609,7 +1569,7 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install skill with prompt dep: %v", err)
 	}
@@ -1638,10 +1598,10 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 		t.Fatalf("expected 2 DB entries, got %d", len(entries))
 	}
 	for _, e := range entries {
-		if e.Skill == "skill-with-prompt" && e.Kind != "Skill" {
+		if e.Name == "skill-with-prompt" && e.Kind != "Skill" {
 			t.Errorf("root entry Kind = %q, want Skill", e.Kind)
 		}
-		if e.Skill == depName && e.Kind != "Prompt" {
+		if e.Name == depName && e.Kind != "Prompt" {
 			t.Errorf("prompt dep entry Kind = %q, want Prompt", e.Kind)
 		}
 	}
@@ -1659,7 +1619,7 @@ func TestInstall_LocalDir_CrossKindSameNameNoConflict(t *testing.T) {
 	depVersion := "2.0.0"
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{{
-		Skill:   depName,
+		Name:    depName,
 		Kind:    "Skill",
 		Version: "1.0.0",
 		Target:  "cursor",
@@ -1738,7 +1698,7 @@ func TestInstall_LocalDir_CrossKindSameNameNoConflict(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", skillDir})
+	root.SetArgs([]string{"install", "--target", "cursor", skillDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("cross-kind same name should not conflict (different dirs): %v", err)
 	}
@@ -1982,7 +1942,7 @@ func TestInstall_GitRef_HappyPath(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "git:" + repoURL + "@v1.0.0"})
+	root.SetArgs([]string{"install", "--target", "cursor", "git:" + repoURL + "@v1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install git ref: %v", err)
 	}
@@ -2021,7 +1981,7 @@ func TestInstall_GitRef_WithCommit_HappyPath(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "install", "--target", "cursor", "git:" + repoURL + "@v1.0.0!" + commitSHA})
+	root.SetArgs([]string{"install", "--target", "cursor", "git:" + repoURL + "@v1.0.0!" + commitSHA})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install git ref with commit: %v", err)
 	}
@@ -2032,5 +1992,171 @@ func TestInstall_GitRef_WithCommit_HappyPath(t *testing.T) {
 	cursorSkills := filepath.Join(home, ".cursor", "skills", "git-skill")
 	if _, err := os.Stat(filepath.Join(cursorSkills, "artifact.json")); err != nil {
 		t.Errorf("artifact not installed: %v", err)
+	}
+}
+
+func TestInstall_Workflow_LocalDir_Claude_HappyPath(t *testing.T) {
+	wfDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalArtifact(t, wfDir, "Workflow", "thorough-review", "1.0.0", "review.js", map[string]string{
+		"review.js": "// workflow script",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("expected Installed in output, got %q", out.String())
+	}
+	installed := filepath.Join(home, ".claude", "workflows", "thorough-review")
+	if _, err := os.Stat(filepath.Join(installed, "artifact.json")); err != nil {
+		t.Errorf("artifact.json not installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installed, "review.js")); err != nil {
+		t.Errorf("review.js not installed: %v", err)
+	}
+}
+
+func TestInstall_Workflow_Cursor_Rejected(t *testing.T) {
+	wfDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalArtifact(t, wfDir, "Workflow", "thorough-review", "1.0.0", "review.js", map[string]string{
+		"review.js": "// workflow script",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "cursor", wfDir})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("install workflow with --target cursor: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude, got %q", err.Error())
+	}
+}
+
+func TestInstall_Workflow_SetsKindInDB(t *testing.T) {
+	wfDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalArtifact(t, wfDir, "Workflow", "my-wf", "1.0.0", "review.js", map[string]string{
+		"review.js": "// workflow",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("LoadInstalled: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "my-wf" {
+			found = true
+			if e.Kind != "Workflow" {
+				t.Errorf("Kind = %q, want Workflow", e.Kind)
+			}
+		}
+	}
+	if !found {
+		t.Error("workflow entry not found in installed DB")
+	}
+}
+
+func TestInstall_Workflow_OCI_Claude_HappyPath(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "oci-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "run.js"), []byte("// workflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", "oci:" + layoutDir + ":oci-wf:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow via OCI: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("output %q", out.String())
+	}
+	installed := filepath.Join(home, ".claude", "workflows", "oci-wf")
+	if _, err := os.Stat(filepath.Join(installed, "run.js")); err != nil {
+		t.Errorf("workflow not installed to workflows/: %v", err)
+	}
+}
+
+func TestInstall_Workflow_OCI_Cursor_Rejected(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "oci-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "run.js"), []byte("// workflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "cursor", "oci:" + layoutDir + ":oci-wf:1.0.0"})
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("install workflow via OCI with --target cursor: expected error")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude, got %q", err.Error())
 	}
 }

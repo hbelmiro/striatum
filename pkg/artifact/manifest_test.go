@@ -525,7 +525,7 @@ func TestValidate_PromptKind(t *testing.T) {
 	}
 }
 
-func TestSupportedKindsList_IncludesPrompt(t *testing.T) {
+func TestSupportedKindsList_IncludesAllKinds(t *testing.T) {
 	list := SupportedKindsList()
 	if !strings.Contains(list, "Prompt") {
 		t.Errorf("SupportedKindsList() = %q, want it to contain Prompt", list)
@@ -533,8 +533,29 @@ func TestSupportedKindsList_IncludesPrompt(t *testing.T) {
 	if !strings.Contains(list, "Skill") {
 		t.Errorf("SupportedKindsList() = %q, want it to contain Skill", list)
 	}
-	if list != "Prompt, Skill" {
-		t.Errorf("SupportedKindsList() = %q, want alphabetical: Prompt, Skill", list)
+	if !strings.Contains(list, "Workflow") {
+		t.Errorf("SupportedKindsList() = %q, want it to contain Workflow", list)
+	}
+	if list != "Prompt, Skill, Workflow" {
+		t.Errorf("SupportedKindsList() = %q, want alphabetical: Prompt, Skill, Workflow", list)
+	}
+}
+
+func TestValidate_WorkflowKind(t *testing.T) {
+	m := &Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+	}
+	if err := Validate(m); err != nil {
+		t.Errorf("Validate() err = %v, want nil for Workflow kind", err)
+	}
+}
+
+func TestIsSupportedKind_Workflow(t *testing.T) {
+	if !IsSupportedKind("Workflow") {
+		t.Error("IsSupportedKind(\"Workflow\") = false, want true")
 	}
 }
 

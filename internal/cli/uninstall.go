@@ -13,9 +13,9 @@ func newUninstallCmd() *cobra.Command {
 	var target, projectPath string
 	cmd := &cobra.Command{
 		Use:     "uninstall",
-		Short:   "Remove a previously installed skill and orphaned dependencies",
-		Long:    "Removes the named skill from the given --target (cursor or claude) and removes any dependencies that are no longer required by other installed skills.",
-		Example: "  striatum skill uninstall --target cursor my-skill",
+		Short:   "Remove a previously installed artifact and orphaned dependencies",
+		Long:    "Removes the named artifact from the given --target (cursor or claude) and removes any dependencies that are no longer required by other installed artifacts.",
+		Example: "  striatum uninstall --target claude my-skill",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw := args[0]
@@ -70,7 +70,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 
 	var toRemove []installer.InstalledEntry
 	for _, e := range entries {
-		if e.Skill != name {
+		if e.Name != name {
 			continue
 		}
 		if e.Target != target {
@@ -88,7 +88,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		seen := make(map[string]bool)
 		var roots []string
 		for _, e := range entries {
-			if e.Skill == name && e.Target == target && e.ProjectPath == normProject && e.InstalledWith != "" {
+			if e.Name == name && e.Target == target && e.ProjectPath == normProject && e.InstalledWith != "" {
 				for _, r := range strings.Fields(e.InstalledWith) {
 					if !seen[r] {
 						seen[r] = true
@@ -98,19 +98,19 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 			}
 		}
 		if len(roots) > 0 {
-			return fmt.Errorf("%q is a dependency installed by %s; uninstall the root skill instead", name, strings.Join(roots, ", "))
+			return fmt.Errorf("%q is a dependency installed by %s; uninstall the root artifact instead", name, strings.Join(roots, ", "))
 		}
-		return fmt.Errorf("skill %q is not installed for target %s", name, target)
+		return fmt.Errorf("artifact %q is not installed for target %s", name, target)
 	}
 
 	// Remove target dirs for toRemove
 	for _, e := range toRemove {
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
+		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
 		if err != nil {
-			return fmt.Errorf("resolve target for %s: %w", e.Skill, err)
+			return fmt.Errorf("resolve target for %s: %w", e.Name, err)
 		}
-		if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
-			return fmt.Errorf("remove %s from target: %w", e.Skill, err)
+		if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
+			return fmt.Errorf("remove %s from target: %w", e.Name, err)
 		}
 	}
 
@@ -119,7 +119,7 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Name == r.Name && e.Kind == r.Kind && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}
@@ -137,12 +137,12 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 			break
 		}
 		for _, e := range orphans {
-			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
+			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
 			if err != nil {
-				return fmt.Errorf("resolve target for orphan %s: %w", e.Skill, err)
+				return fmt.Errorf("resolve target for orphan %s: %w", e.Name, err)
 			}
-			if err := installer.RemoveFromTarget(targetDir, e.Skill); err != nil {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Skill, "from target:", err)
+			if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Name, "from target:", err)
 			}
 		}
 		remaining = removeEntries(remaining, orphans)
@@ -170,7 +170,7 @@ func computeOrphans(entries []installer.InstalledEntry) []installer.InstalledEnt
 		if roots[ck] == nil {
 			roots[ck] = make(map[string]bool)
 		}
-		roots[ck][e.Skill] = true
+		roots[ck][e.Name] = true
 	}
 	var orphans []installer.InstalledEntry
 	for _, e := range entries {
@@ -197,7 +197,7 @@ func removeEntries(entries, toRemove []installer.InstalledEntry) []installer.Ins
 	for _, e := range entries {
 		keep := true
 		for _, r := range toRemove {
-			if e.Skill == r.Skill && e.EffectiveKind() == r.EffectiveKind() && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
+			if e.Name == r.Name && e.Kind == r.Kind && e.Target == r.Target && e.ProjectPath == r.ProjectPath {
 				keep = false
 				break
 			}

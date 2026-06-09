@@ -19,11 +19,18 @@ import (
 // Layer annotation for file path (OCI image-spec convention).
 const annotationTitle = "org.opencontainers.image.title"
 
+// DepFile represents a dependency file to bundle as an extra layer in the OCI image.
+type DepFile struct {
+	AnnotationPath string // path used as the layer annotation (e.g. "deps/severity-rubric/rubric.md")
+	DiskPath       string // absolute path to the file on disk
+}
+
 // Pack builds an OCI image from the artifact manifest and writes it to the
 // OCI Image Layout at layoutPath. The manifest must be valid; all spec.files
 // paths are read relative to baseDir, the root directory used to resolve those
 // paths (for example, the directory containing artifact.json).
-func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string) error {
+// Optional depFiles are bundled as extra layers (used for pack-time prompt inlining).
+func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string, depFiles ...DepFile) error {
 	if m == nil {
 		return errors.New("manifest is nil")
 	}
@@ -32,11 +39,11 @@ func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath 
 		return fmt.Errorf("create OCI store: %w", err)
 	}
 	tag := m.Metadata.Name + ":" + m.Metadata.Version
-	return packToTarget(ctx, m, baseDir, store, tag)
+	return packToTarget(ctx, m, baseDir, store, tag, depFiles...)
 }
 
 // packToTarget pushes the artifact (config + layers + manifest) to target and tags it.
-func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, target oras.Target, tag string) error {
+func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, target oras.Target, tag string, depFiles ...DepFile) error {
 	if m == nil {
 		return errors.New("manifest is nil")
 	}
@@ -67,6 +74,19 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		layerDesc.Annotations = map[string]string{annotationTitle: name}
 		if err := target.Push(ctx, layerDesc, bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("push layer %q: %w", name, err)
+		}
+		layers = append(layers, layerDesc)
+	}
+
+	for _, df := range depFiles {
+		data, err := os.ReadFile(df.DiskPath)
+		if err != nil {
+			return fmt.Errorf("read dep file %q: %w", df.AnnotationPath, err)
+		}
+		layerDesc := content.NewDescriptorFromBytes(LayerMediaType, data)
+		layerDesc.Annotations = map[string]string{annotationTitle: df.AnnotationPath}
+		if err := target.Push(ctx, layerDesc, bytes.NewReader(data)); err != nil {
+			return fmt.Errorf("push dep layer %q: %w", df.AnnotationPath, err)
 		}
 		layers = append(layers, layerDesc)
 	}

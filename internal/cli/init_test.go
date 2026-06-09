@@ -123,6 +123,34 @@ func TestInit_PromptKind(t *testing.T) {
 	}
 }
 
+func TestInit_WorkflowKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"init", "--name", "thorough-review", "--kind", "Workflow", "--entrypoint", "review.js"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init --kind Workflow: %v", err)
+	}
+
+	m, err := artifact.Load(filepath.Join(dir, "artifact.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != "Workflow" {
+		t.Errorf("kind = %q, want Workflow", m.Kind)
+	}
+	if m.Metadata.Name != "thorough-review" {
+		t.Errorf("name = %q, want thorough-review", m.Metadata.Name)
+	}
+	if m.Spec.Entrypoint != "review.js" {
+		t.Errorf("entrypoint = %q, want review.js", m.Spec.Entrypoint)
+	}
+	if err := artifact.Validate(m); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+}
+
 func TestInit_RejectsUnsupportedKind(t *testing.T) {
 	t.Chdir(t.TempDir())
 

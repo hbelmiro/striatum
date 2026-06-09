@@ -9,7 +9,7 @@ Use this file as context when working on this repository.
 ## Layout
 
 - **`cmd/striatum/`** — CLI entrypoint.
-- **`internal/cli/`** — Cobra commands and CLI-only logic (init, validate, pack, push, pull, install, uninstall, inspect, skill list).
+- **`internal/cli/`** — Cobra commands and CLI-only logic (init, validate, pack, push, pull, install, uninstall, inspect, list).
 - **`pkg/`** — Reusable packages: `oci` (pack/push/pull/inspect), `artifact` (manifest), `resolver` (dependencies), `installer` (cache and install targets).
 
 ## Build and test
@@ -34,14 +34,14 @@ go test -tags=integration ./...
 
 ## Commands (reference)
 
-| Command | Purpose |
-| ------- | ------- |
-| `striatum init` | Scaffold `artifact.json` (requires `--name`, `--kind`, `--entrypoint`) |
-| `striatum validate` | Validate artifact (optional `--check-deps`; `-f` / `--manifest` for non-CWD `artifact.json`) |
-| `striatum pack` | Bundle into local OCI Image Layout at `<project>/build/` by default; `-o` / `--output` for another path (`-f` / `--manifest` supported) |
-| `striatum push <ref>` | Push to OCI registry (`-f` / `--manifest` supported) |
-| `striatum pull <ref>` | Pull artifact and deps |
-| `striatum inspect <ref>` | Show remote artifact metadata |
-| `striatum skill install <ref>` | Install skill into Cursor/Claude skills dirs |
-| `striatum skill uninstall <name>` | Remove installed skill |
-| `striatum skill list` | List cached skills; use `--installed --target cursor` or `--target claude` for installed |
+| Command                     | Purpose                                                                                                                                 |
+|-----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `striatum init`             | Scaffold `artifact.json` (requires `--name`, `--kind`, `--entrypoint`)                                                                  |
+| `striatum validate`         | Validate artifact (optional `--check-deps`; `-f` / `--manifest` for non-CWD `artifact.json`)                                            |
+| `striatum pack`             | Bundle into local OCI Image Layout at `<project>/build/` by default; `-o` / `--output` for another path (`-f` / `--manifest` supported) |
+| `striatum push <ref>`       | Push to OCI registry (`-f` / `--manifest` supported)                                                                                    |
+| `striatum pull <ref>`       | Pull artifact and deps                                                                                                                  |
+| `striatum inspect <ref>`    | Show remote artifact metadata                                                                                                           |
+| `striatum install <ref>`    | Install artifact into Cursor/Claude directories (kind auto-detected; Workflow to `~/.claude/workflows/`, Skill to skills dirs)          |
+| `striatum uninstall <name>` | Remove installed artifact                                                                                                               |
+| `striatum list`             | List cached artifacts (all kinds); use `--installed --target cursor` or `--target claude` for installed                                 |

@@ -86,11 +86,11 @@ echo "Pulling example-skill and OCI dependencies..."
 "$STRIATUM" pull "$REGISTRY_BASE/example-skill:1.0.0" -o "$OUT_DIR"
 echo "Pulled to $OUT_DIR"
 
-# Skill install / uninstall (OCI only)
+# Artifact install / uninstall (OCI only)
 echo "Installing example-skill to Cursor target..."
-"$STRIATUM" skill install --target cursor "$REGISTRY_BASE/example-skill:1.0.0"
+"$STRIATUM" install --target cursor "$REGISTRY_BASE/example-skill:1.0.0"
 echo "Uninstalling example-skill..."
-"$STRIATUM" skill uninstall --target cursor example-skill
+"$STRIATUM" uninstall --target cursor example-skill
 
 # ---------------------------------------------------------------------------
 # 2) Git dependency demo

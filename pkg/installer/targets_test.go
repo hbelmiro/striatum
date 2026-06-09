@@ -3,6 +3,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,7 +16,7 @@ func TestTargets_CursorEmptyProject(t *testing.T) {
 	}
 	want := filepath.Join(home, ".cursor", "skills")
 	if got != want {
-		t.Errorf("Targets(cursor, \"\") = %q, want %q", got, want)
+		t.Errorf("Targets(cursor, \"\", Skill) = %q, want %q", got, want)
 	}
 }
 
@@ -28,7 +29,7 @@ func TestTargets_ClaudeEmptyProject(t *testing.T) {
 	}
 	want := filepath.Join(home, ".claude", "skills")
 	if got != want {
-		t.Errorf("Targets(claude, \"\") = %q, want %q", got, want)
+		t.Errorf("Targets(claude, \"\", Skill) = %q, want %q", got, want)
 	}
 }
 
@@ -40,7 +41,7 @@ func TestTargets_CursorWithProject(t *testing.T) {
 	}
 	want := filepath.Join(proj, ".cursor", "skills")
 	if got != want {
-		t.Errorf("Targets(cursor, proj) = %q, want %q", got, want)
+		t.Errorf("Targets(cursor, proj, Skill) = %q, want %q", got, want)
 	}
 }
 
@@ -52,7 +53,7 @@ func TestTargets_ClaudeWithProject(t *testing.T) {
 	}
 	want := filepath.Join(proj, ".claude", "skills")
 	if got != want {
-		t.Errorf("Targets(claude, proj) = %q, want %q", got, want)
+		t.Errorf("Targets(claude, proj, Skill) = %q, want %q", got, want)
 	}
 }
 
@@ -81,16 +82,12 @@ func TestTargets_PromptKind_CursorWithProject(t *testing.T) {
 	}
 }
 
-func TestTargets_EmptyKind_DefaultsToSkills(t *testing.T) {
+func TestTargets_EmptyKind_ReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	got, err := Targets("claude", "", "")
-	if err != nil {
-		t.Fatalf("Targets: %v", err)
-	}
-	want := filepath.Join(home, ".claude", "skills")
-	if got != want {
-		t.Errorf("Targets(claude, \"\", \"\") = %q, want %q", got, want)
+	_, err := Targets("claude", "", "")
+	if err == nil {
+		t.Fatal("Targets(claude, \"\", \"\") want error for empty kind")
 	}
 }
 
@@ -102,6 +99,48 @@ func TestTargets_InvalidTarget(t *testing.T) {
 	_, err = Targets("", "", "Skill")
 	if err == nil {
 		t.Error("Targets(empty) want error")
+	}
+}
+
+func TestTargets_WorkflowClaudeEmptyProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Targets("claude", "", "Workflow")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(home, ".claude", "workflows")
+	if got != want {
+		t.Errorf("Targets(claude, \"\", Workflow) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_WorkflowClaudeWithProject(t *testing.T) {
+	proj := t.TempDir()
+	got, err := Targets("claude", proj, "Workflow")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(proj, ".claude", "workflows")
+	if got != want {
+		t.Errorf("Targets(claude, proj, Workflow) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_WorkflowCursorRejected(t *testing.T) {
+	_, err := Targets("cursor", "", "Workflow")
+	if err == nil {
+		t.Fatal("Targets(cursor, \"\", Workflow) want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude, got %q", err.Error())
+	}
+}
+
+func TestTargets_UnsupportedKindRejected(t *testing.T) {
+	_, err := Targets("claude", "", "Unknown")
+	if err == nil {
+		t.Fatal("Targets(claude, \"\", Unknown) want error, got nil")
 	}
 }
 

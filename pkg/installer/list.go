@@ -10,25 +10,26 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
-// CachedSkill describes a skill present in the local cache.
-type CachedSkill struct {
+// CachedArtifact describes an artifact present in the local cache.
+type CachedArtifact struct {
 	Name        string
 	Version     string
+	Kind        string
 	Description string
 }
 
-// ListCachedSkills returns all skills in the cache (directories name@version with artifact.json).
+// ListCachedArtifacts returns all artifacts in the cache (directories name@version with artifact.json).
 // Returns a non-nil empty slice and nil error when cache dir is missing or empty.
-func ListCachedSkills() ([]CachedSkill, error) {
+func ListCachedArtifacts() ([]CachedArtifact, error) {
 	cacheRoot := filepath.Join(CacheRoot(), cacheDirName)
 	entries, err := os.ReadDir(cacheRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []CachedSkill{}, nil
+			return []CachedArtifact{}, nil
 		}
 		return nil, fmt.Errorf("read cache dir %s: %w", cacheRoot, err)
 	}
-	var result []CachedSkill
+	var result []CachedArtifact
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -38,8 +39,8 @@ func ListCachedSkills() ([]CachedSkill, error) {
 		if i < 0 {
 			continue
 		}
-		skillName, version := name[:i], name[i+1:]
-		if strings.TrimSpace(skillName) == "" || version == "" {
+		artName, version := name[:i], name[i+1:]
+		if strings.TrimSpace(artName) == "" || version == "" {
 			continue
 		}
 		dirPath := filepath.Join(cacheRoot, name)
@@ -54,10 +55,10 @@ func ListCachedSkills() ([]CachedSkill, error) {
 		if err != nil {
 			continue
 		}
-		if m.Kind != "Skill" {
+		if !artifact.IsSupportedKind(m.Kind) {
 			continue
 		}
-		result = append(result, CachedSkill{Name: skillName, Version: version, Description: m.Metadata.Description})
+		result = append(result, CachedArtifact{Name: artName, Version: version, Kind: m.Kind, Description: m.Metadata.Description})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Name != result[j].Name {
@@ -66,7 +67,7 @@ func ListCachedSkills() ([]CachedSkill, error) {
 		return result[i].Version < result[j].Version
 	})
 	if result == nil {
-		result = []CachedSkill{}
+		result = []CachedArtifact{}
 	}
 	return result, nil
 }

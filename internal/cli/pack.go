@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
+	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 )
 
@@ -43,7 +46,11 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 			if err := os.MkdirAll(layoutPath, 0o755); err != nil {
 				return fmt.Errorf("create layout dir: %w", err)
 			}
-			if err := oci.Pack(cmd.Context(), m, projectRoot, layoutPath); err != nil {
+			depFiles, err := resolvePromptDeps(cmd.Context(), m)
+			if err != nil {
+				return err
+			}
+			if err := oci.Pack(cmd.Context(), m, projectRoot, layoutPath, depFiles...); err != nil {
 				return fmt.Errorf("pack artifact: %w", err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed artifact to %s\n", layoutPath)
@@ -53,4 +60,29 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
 	cmd.Flags().StringVarP(&outputFlag, "output", "o", "", "OCI layout output directory (default: <project>/build/; relative paths use the current working directory)")
 	return cmd
+}
+
+func resolvePromptDeps(ctx context.Context, m *artifact.Manifest) ([]oci.DepFile, error) {
+	if m.Kind != "Workflow" || len(m.Dependencies) == 0 {
+		return nil, nil
+	}
+	fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
+	resolved, err := resolver.Resolve(ctx, m, fetcher)
+	if err != nil {
+		return nil, fmt.Errorf("resolve dependencies: %w", err)
+	}
+	var depFiles []oci.DepFile
+	for _, r := range resolved[1:] {
+		if r.Manifest == nil || r.Manifest.Kind != "Prompt" {
+			continue
+		}
+		cacheDir := installer.CacheDir(r.Name, r.Version)
+		for _, f := range r.Manifest.Spec.Files {
+			depFiles = append(depFiles, oci.DepFile{
+				AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
+				DiskPath:       filepath.Join(cacheDir, f),
+			})
+		}
+	}
+	return depFiles, nil
 }
