@@ -80,6 +80,28 @@ striatum list --installed --target cursor
 
 See [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
 
+### Workflow artifacts
+
+Workflow artifacts are [Claude Code workflow](https://docs.anthropic.com/en/docs/claude-code/workflows) scripts that orchestrate multiple agents for complex tasks. When a Workflow declares Prompt dependencies, `striatum pack` resolves them, fetches any that are missing from the local cache, and bundles the prompt files as extra OCI layers under `deps/<prompt-name>/`. After install, the layout on disk looks like this:
+
+```text
+~/.claude/workflows/thorough-review/
+  review.js
+  deps/
+    severity-rubric/
+      severity-rubric.md
+```
+
+Example flow:
+
+```bash
+striatum init --name thorough-review --kind Workflow --entrypoint review.js
+# add a Prompt dependency to artifact.json, then:
+striatum pack
+striatum push localhost:5000/workflows/thorough-review:1.0.0
+striatum install --target claude localhost:5000/workflows/thorough-review:1.0.0
+```
+
 ## Releasing
 
 Releases are automated with [GoReleaser](https://goreleaser.com/) via GitHub Actions.
