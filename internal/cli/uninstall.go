@@ -10,12 +10,12 @@ import (
 )
 
 func newUninstallCmd() *cobra.Command {
-	var target, projectPath string
+	var target, projectPath, kindFlag string
 	cmd := &cobra.Command{
 		Use:     "uninstall",
 		Short:   "Remove a previously installed artifact and orphaned dependencies",
 		Long:    "Removes the named artifact from the given --target (cursor or claude) and removes any dependencies that are no longer required by other installed artifacts.",
-		Example: "  striatum uninstall --target claude my-skill",
+		Example: "  striatum uninstall --target claude my-skill\n  striatum uninstall --target claude --kind Workflow my-workflow",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw := args[0]
@@ -36,12 +36,13 @@ func newUninstallCmd() *cobra.Command {
 				}
 				normProject = abs
 			}
-			return runUninstall(cmd, name, target, normProject)
+			return runUninstall(cmd, name, target, normProject, strings.TrimSpace(kindFlag))
 		},
 	}
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Uninstall from target: cursor or claude (required)")
 	_ = cmd.MarkFlagRequired("target")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path (match project-level install)")
+	cmd.Flags().StringVarP(&kindFlag, "kind", "k", "", "Artifact kind filter (Skill, Prompt, or Workflow); required when multiple kinds share the same name")
 	return cmd
 }
 
@@ -59,7 +60,7 @@ func normalizeUninstallName(arg string) string {
 	return arg
 }
 
-func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
+func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter string) error {
 	entries, err := installer.LoadInstalled()
 	if err != nil {
 		return fmt.Errorf("load installed: %w", err)
@@ -82,7 +83,17 @@ func runUninstall(cmd *cobra.Command, name, target, normProject string) error {
 		if e.InstalledWith != "" {
 			continue
 		}
+		if kindFilter != "" && e.Kind != kindFilter {
+			continue
+		}
 		toRemove = append(toRemove, e)
+	}
+	if len(toRemove) > 1 {
+		kinds := make([]string, len(toRemove))
+		for i, e := range toRemove {
+			kinds[i] = e.Kind
+		}
+		return fmt.Errorf("multiple artifacts named %q installed for target %s (kinds: %s); use --kind to disambiguate", name, target, strings.Join(kinds, ", "))
 	}
 	if len(toRemove) == 0 {
 		seen := make(map[string]bool)

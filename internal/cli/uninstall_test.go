@@ -935,6 +935,86 @@ func TestComputeOrphans_CrossScope_NoFalseOrphan(t *testing.T) {
 	}
 }
 
+func TestUninstall_AmbiguousKind_ErrorsWithRecommendation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "shared-name"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall with ambiguous kind: expected error")
+	}
+	if !strings.Contains(err.Error(), "--kind") {
+		t.Errorf("error should recommend --kind flag, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Skill") || !strings.Contains(err.Error(), "Prompt") {
+		t.Errorf("error should list the conflicting kinds, got: %v", err)
+	}
+}
+
+func TestUninstall_KindFlag_Disambiguates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	for _, kind := range []string{"Skill", "Prompt"} {
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       kind,
+			Metadata:   artifact.Metadata{Name: "shared-name", Version: "1.0.0"},
+			Spec:       artifact.Spec{Entrypoint: "file.md", Files: []string{"file.md"}},
+		}
+		cacheDir := installer.CacheDir("shared-name", "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeArtifact(t, cacheDir, m)
+		targetDir, err := installer.Targets("cursor", "", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := installer.InstallToTarget(cacheDir, targetDir, "shared-name"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "--kind", "Skill", "shared-name"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall with --kind Skill: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (Prompt), got %d", len(entries))
+	}
+	if entries[0].Kind != "Prompt" {
+		t.Errorf("remaining entry kind = %q, want Prompt", entries[0].Kind)
+	}
+}
+
 func TestUninstall_Workflow_RemovesFromWorkflowsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)

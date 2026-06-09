@@ -79,7 +79,7 @@ func defaultPromptPuller(ctx context.Context, r resolver.ResolvedArtifact) error
 }
 
 func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDepPuller) ([]oci.DepFile, error) {
-	if len(m.Dependencies) == 0 {
+	if m.Kind != "Workflow" || len(m.Dependencies) == 0 {
 		return nil, nil
 	}
 	fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
@@ -105,13 +105,11 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDep
 				return nil, fmt.Errorf("pull prompt dependency %q: %w", r.Name, err)
 			}
 		}
-		if m.Kind == "Workflow" {
-			for _, f := range r.Manifest.Spec.Files {
-				depFiles = append(depFiles, oci.DepFile{
-					AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
-					DiskPath:       filepath.Join(cacheDir, f),
-				})
-			}
+		for _, f := range r.Manifest.Spec.Files {
+			depFiles = append(depFiles, oci.DepFile{
+				AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
+				DiskPath:       filepath.Join(cacheDir, f),
+			})
 		}
 	}
 	return depFiles, nil

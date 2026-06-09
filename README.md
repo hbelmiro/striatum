@@ -52,7 +52,7 @@ The flag treats a path as a manifest **file** only when its final component is n
 - `striatum pull <reference>` -- download artifact and dependencies to the output directory (default: current working directory; each artifact in `<output>/<name>/`) and into the Striatum cache; use `--no-cache` for output only
 - `striatum inspect <reference>` -- show remote artifact metadata
 - `striatum install <reference>` -- install an artifact into Cursor/Claude directories (kind auto-detected from manifest; Workflow installs to `~/.claude/workflows/`, Skill installs to skills directories)
-- `striatum uninstall <name>` -- remove an installed artifact
+- `striatum uninstall <name>` -- remove an installed artifact; use `--kind` to disambiguate when multiple kinds share the same name
 - `striatum list` -- list artifacts in local cache (all kinds, with KIND column); use `--installed` to list installed artifacts (optional `--target cursor|claude`)
 
 ### Usage examples

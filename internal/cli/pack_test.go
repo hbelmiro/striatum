@@ -719,12 +719,10 @@ func TestResolvePromptDeps_FilesInCache_SkipsPull(t *testing.T) {
 	}
 }
 
-func TestResolvePromptDeps_Skill_AutoPullsButNoInline(t *testing.T) {
+func TestResolvePromptDeps_Skill_SkipsResolution(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
-
-	setupPromptInCache(t, "skill-prompt", "1.0.0", "rubric.md", "", false)
 
 	m := &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha2",
@@ -739,18 +737,17 @@ func TestResolvePromptDeps_Skill_AutoPullsButNoInline(t *testing.T) {
 	pullCalled := false
 	fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
 		pullCalled = true
-		cacheDir := installer.CacheDir(r.Name, r.Version)
-		return os.WriteFile(filepath.Join(cacheDir, "rubric.md"), []byte("# Rubric"), 0o644)
+		return nil
 	}
 
 	deps, err := resolvePromptDeps(context.Background(), m, fakePuller)
 	if err != nil {
 		t.Fatalf("resolvePromptDeps: %v", err)
 	}
-	if !pullCalled {
-		t.Error("puller should be called for Skill deps too")
+	if pullCalled {
+		t.Error("puller should NOT be called for Skills during pack")
 	}
 	if len(deps) != 0 {
-		t.Errorf("len(deps) = %d, want 0 (Skills should not inline prompt deps)", len(deps))
+		t.Errorf("len(deps) = %d, want 0 (Skills should skip prompt dep resolution)", len(deps))
 	}
 }
