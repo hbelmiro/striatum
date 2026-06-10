@@ -308,6 +308,34 @@ func TestListCachedArtifacts_MixedKinds_AllShown(t *testing.T) {
 	}
 }
 
+func TestListCachedArtifacts_SameNameVersion_SortsByKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	for _, kind := range []string{"Workflow", "Prompt", "Skill"} {
+		cacheDir := CacheDir(kind, "shared-lib", "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		entry := "entry.md"
+		writeArtifactManifest(t, cacheDir, &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       kind,
+			Metadata:   artifact.Metadata{Name: "shared-lib", Version: "1.0.0"},
+			Spec:       artifact.Spec{Entrypoint: entry, Files: []string{entry}},
+		})
+	}
+	got, err := ListCachedArtifacts()
+	if err != nil {
+		t.Fatalf("ListCachedArtifacts(): err = %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3", len(got))
+	}
+	if got[0].Kind != "Prompt" || got[1].Kind != "Skill" || got[2].Kind != "Workflow" {
+		t.Errorf("want sorted by Kind: got [%s, %s, %s], want [Prompt, Skill, Workflow]", got[0].Kind, got[1].Kind, got[2].Kind)
+	}
+}
+
 func writeArtifactManifest(t *testing.T, dir string, m *artifact.Manifest) {
 	t.Helper()
 	data, err := json.Marshal(m)

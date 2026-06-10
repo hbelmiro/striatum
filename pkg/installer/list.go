@@ -75,6 +75,9 @@ func ListCachedArtifacts() ([]CachedArtifact, error) {
 		if result[i].Name != result[j].Name {
 			return result[i].Name < result[j].Name
 		}
+		if result[i].Kind != result[j].Kind {
+			return result[i].Kind < result[j].Kind
+		}
 		return result[i].Version < result[j].Version
 	})
 	if result == nil {

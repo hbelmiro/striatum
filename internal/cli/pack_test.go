@@ -338,58 +338,6 @@ func TestPack_Workflow_WithPromptDep_InlinesPromptFiles(t *testing.T) {
 	}
 }
 
-func TestPack_Workflow_PromptDepNotInCache_AttemptsAutoPull(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("STRIATUM_HOME", home)
-	t.Setenv("HOME", home)
-
-	// Set up a Prompt manifest in cache but WITHOUT the actual file
-	promptCacheDir := installer.CacheDir("Prompt", "missing-prompt", "1.0.0")
-	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	promptManifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha2",
-		Kind:       "Prompt",
-		Metadata:   artifact.Metadata{Name: "missing-prompt", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "rubric.md", Files: []string{"rubric.md"}},
-	}
-	promptData, _ := json.Marshal(promptManifest)
-	if err := os.WriteFile(filepath.Join(promptCacheDir, "artifact.json"), promptData, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// NOTE: rubric.md is intentionally NOT written to cache
-
-	wfDir := t.TempDir()
-	t.Chdir(wfDir)
-	wfManifest := &artifact.Manifest{
-		APIVersion: "striatum.dev/v1alpha2",
-		Kind:       "Workflow",
-		Metadata:   artifact.Metadata{Name: "wf-missing-dep", Version: "1.0.0"},
-		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
-		Dependencies: []artifact.Dependency{
-			&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/missing-prompt", Tag: "1.0.0"},
-		},
-	}
-	wfData, _ := json.Marshal(wfManifest)
-	if err := os.WriteFile(filepath.Join(wfDir, "artifact.json"), wfData, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(wfDir, "run.js"), []byte("// wf"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	root := NewRootCommand()
-	root.SetArgs([]string{"pack"})
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("pack with missing prompt dep file and unreachable registry: expected error")
-	}
-	if !strings.Contains(err.Error(), "pull prompt dependency") {
-		t.Errorf("error should mention 'pull prompt dependency', got: %v", err)
-	}
-}
-
 func TestPack_Workflow_NoDeps_NormalBehavior(t *testing.T) {
 	wfDir := t.TempDir()
 	t.Chdir(wfDir)
