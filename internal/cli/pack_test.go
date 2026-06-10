@@ -719,6 +719,60 @@ func TestResolvePromptDeps_FilesInCache_SkipsPull(t *testing.T) {
 	}
 }
 
+func TestResolvePromptDeps_PathTraversal_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	for _, tc := range []struct {
+		name     string
+		fileName string
+	}{
+		{"parent traversal", "../evil.txt"},
+		{"absolute path", "/etc/passwd"},
+		{"nested traversal", "subdir/../../evil.txt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			promptCacheDir := installer.CacheDir("bad-prompt-"+tc.name, "1.0.0")
+			if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			promptManifest := &artifact.Manifest{
+				APIVersion: "striatum.dev/v1alpha2",
+				Kind:       "Prompt",
+				Metadata:   artifact.Metadata{Name: "bad-prompt-" + tc.name, Version: "1.0.0"},
+				Spec:       artifact.Spec{Entrypoint: tc.fileName, Files: []string{tc.fileName}},
+			}
+			promptData, _ := json.Marshal(promptManifest)
+			if err := os.WriteFile(filepath.Join(promptCacheDir, "artifact.json"), promptData, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			m := &artifact.Manifest{
+				APIVersion: "striatum.dev/v1alpha2",
+				Kind:       "Workflow",
+				Metadata:   artifact.Metadata{Name: "wf-" + tc.name, Version: "1.0.0"},
+				Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+				Dependencies: []artifact.Dependency{
+					&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/bad-prompt-" + tc.name, Tag: "1.0.0"},
+				},
+			}
+
+			fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+				return nil
+			}
+
+			_, err := resolvePromptDeps(context.Background(), m, fakePuller)
+			if err == nil {
+				t.Fatalf("expected error for path %q, got nil", tc.fileName)
+			}
+			if !strings.Contains(err.Error(), "invalid file path") {
+				t.Errorf("error should mention 'invalid file path', got: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolvePromptDeps_Skill_SkipsResolution(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)

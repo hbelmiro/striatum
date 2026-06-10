@@ -278,6 +278,9 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 	}
 
+	if err := artifact.Validate(rootManifest); err != nil {
+		return fmt.Errorf("invalid manifest: %w", err)
+	}
 	if err := validateInstallableKind(rootManifest.Kind, target); err != nil {
 		return err
 	}

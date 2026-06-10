@@ -93,9 +93,14 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDep
 			continue
 		}
 		cacheDir := installer.CacheDir(r.Name, r.Version)
+		for _, f := range r.Manifest.Spec.Files {
+			if f == "" || strings.Contains(f, "..") || filepath.IsAbs(f) {
+				return nil, fmt.Errorf("prompt dependency %q: invalid file path %q", r.Name, f)
+			}
+		}
 		needsPull := false
 		for _, f := range r.Manifest.Spec.Files {
-			if _, err := os.Stat(filepath.Join(cacheDir, f)); err != nil {
+			if _, err := os.Stat(filepath.Join(cacheDir, filepath.FromSlash(f))); err != nil {
 				needsPull = true
 				break
 			}
@@ -108,7 +113,7 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDep
 		for _, f := range r.Manifest.Spec.Files {
 			depFiles = append(depFiles, oci.DepFile{
 				AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
-				DiskPath:       filepath.Join(cacheDir, f),
+				DiskPath:       filepath.Join(cacheDir, filepath.FromSlash(f)),
 			})
 		}
 	}
