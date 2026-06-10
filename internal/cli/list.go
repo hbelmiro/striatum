@@ -89,7 +89,7 @@ func runList(cmd *cobra.Command, installed bool, target string, projectPath stri
 			_, _ = fmt.Fprintln(out, "No installed artifacts.")
 			return nil
 		}
-		writeAlignedTable(out, []string{"NAME", "VERSION", "TARGET", "SCOPE", "INSTALLED_WITH"}, func(w io.Writer) {
+		writeAlignedTable(out, []string{"NAME", "KIND", "VERSION", "TARGET", "SCOPE", "INSTALLED_WITH"}, func(w io.Writer) {
 			for _, e := range entries {
 				with := e.InstalledWith
 				if with == "" {
@@ -99,7 +99,11 @@ func runList(cmd *cobra.Command, installed bool, target string, projectPath stri
 				if e.ProjectPath != "" {
 					scope = e.ProjectPath
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.Name, e.Version, e.Target, scope, with)
+				kind := e.Kind
+				if kind == "" {
+					kind = "-"
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, kind, e.Version, e.Target, scope, with)
 			}
 		})
 		return nil

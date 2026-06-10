@@ -43,5 +43,5 @@ go test -tags=integration ./...
 | `striatum pull <ref>`       | Pull artifact and deps                                                                                                                  |
 | `striatum inspect <ref>`    | Show remote artifact metadata                                                                                                           |
 | `striatum install <ref>`    | Install artifact into Cursor/Claude directories (kind auto-detected; Workflow to `~/.claude/workflows/`, Skill to skills dirs)          |
-| `striatum uninstall <name>` | Remove installed artifact                                                                                                               |
+| `striatum uninstall <name>` | Remove installed artifact; `--kind` to disambiguate when multiple kinds share the same name                                             |
 | `striatum list`             | List cached artifacts (all kinds); use `--installed --target cursor` or `--target claude` for installed                                 |

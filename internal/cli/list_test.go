@@ -198,6 +198,34 @@ func writeArtifactForList(t *testing.T, dir string, m *artifact.Manifest) {
 	}
 }
 
+func TestList_Installed_ShowsKindColumn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "my-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"list", "--installed"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("list --installed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "KIND") {
+		t.Errorf("output should contain KIND header; got %q", got)
+	}
+	if !strings.Contains(got, "Workflow") {
+		t.Errorf("output should contain Workflow kind; got %q", got)
+	}
+}
+
 func TestList_Installed_ShowsScopeColumn(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
