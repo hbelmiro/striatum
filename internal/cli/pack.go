@@ -87,7 +87,7 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDep
 	if err != nil {
 		return nil, fmt.Errorf("resolve dependencies: %w", err)
 	}
-	if err := validateResolvedPaths(resolved[1:]); err != nil {
+	if err := validateResolvedPaths(resolved); err != nil {
 		return nil, err
 	}
 	var depFiles []oci.DepFile
