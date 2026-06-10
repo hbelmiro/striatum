@@ -106,7 +106,7 @@ func TestIntegration_PushPullViaRegistry(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "integration-test", "SKILL.md")); err != nil {
 		t.Errorf("pulled SKILL.md missing: %v", err)
 	}
-	cacheArtifact := filepath.Join(installer.CacheDir("integration-test", "1.0.0"), "artifact.json")
+	cacheArtifact := filepath.Join(installer.CacheDir("Skill", "integration-test", "1.0.0"), "artifact.json")
 	if _, err := os.Stat(cacheArtifact); err != nil {
 		t.Fatalf("expected pull to populate Striatum cache at %s: %v", cacheArtifact, err)
 	}
@@ -215,7 +215,7 @@ func TestIntegration_PullWithDependencies_DefaultCacheAndNoCache(t *testing.T) {
 			}
 		}
 		for _, tc := range []struct{ name, ver string }{{"pull-int-root", "1.0.0"}, {"pull-int-dep", "1.0.0"}} {
-			p := filepath.Join(installer.CacheDir(tc.name, tc.ver), "artifact.json")
+			p := filepath.Join(installer.CacheDir("Skill", tc.name, tc.ver), "artifact.json")
 			if _, err := os.Stat(p); err != nil {
 				t.Fatalf("expected cache %s: %v", p, err)
 			}
@@ -236,7 +236,7 @@ func TestIntegration_PullWithDependencies_DefaultCacheAndNoCache(t *testing.T) {
 			}
 		}
 		for _, tc := range []struct{ name, ver string }{{"pull-int-root", "1.0.0"}, {"pull-int-dep", "1.0.0"}} {
-			p := filepath.Join(installer.CacheDir(tc.name, tc.ver), "artifact.json")
+			p := filepath.Join(installer.CacheDir("Skill", tc.name, tc.ver), "artifact.json")
 			if _, err := os.Stat(p); !os.IsNotExist(err) {
 				if err == nil {
 					t.Fatalf("expected no cache at %s with --no-cache", p)

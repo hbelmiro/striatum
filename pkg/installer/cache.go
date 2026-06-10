@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
 const (
@@ -29,9 +31,23 @@ func CacheRoot() string {
 	return filepath.Join(home, ".striatum")
 }
 
-// CacheDir returns the cache directory for the given name@version.
-func CacheDir(name, version string) string {
-	return filepath.Join(CacheRoot(), cacheDirName, name+"@"+version)
+// CacheDir returns the cache directory for the given kind/name@version.
+func CacheDir(kind, name, version string) string {
+	return filepath.Join(CacheRoot(), cacheDirName, kind, name+"@"+version)
+}
+
+// FindCacheDir probes all supported kind subdirectories for name@version
+// and returns the first match. Use when the caller does not know the artifact kind.
+func FindCacheDir(name, version string) (string, bool) {
+	nv := name + "@" + version
+	cacheRoot := filepath.Join(CacheRoot(), cacheDirName)
+	for _, kind := range artifact.SupportedKinds() {
+		candidate := filepath.Join(cacheRoot, kind, nv)
+		if _, err := os.Stat(filepath.Join(candidate, "artifact.json")); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 // PullFunc is called to pull an artifact into outputDir.

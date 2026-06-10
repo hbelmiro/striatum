@@ -47,7 +47,7 @@ func TestList_OneCachedArtifact_OutputContainsNameAndVersion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
-	cacheDir := installer.CacheDir("foo", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "foo", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestList_CachedWorkflow_ShowsKindColumn(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
-	cacheDir := installer.CacheDir("my-wf", "1.0.0")
+	cacheDir := installer.CacheDir("Workflow", "my-wf", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

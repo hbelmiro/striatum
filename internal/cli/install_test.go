@@ -215,7 +215,7 @@ func TestInstall_FromCache_WhenRefMapsToCachedSkill_SucceedsWithoutInspect(t *te
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	cacheDir := installer.CacheDir("foo", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "foo", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestInstall_ConflictWithoutForce_Errors(t *testing.T) {
 		{"conflict-skill", "1.0.0"},
 		{"conflict-skill", "2.0.0"},
 	} {
-		cacheDir := installer.CacheDir(ent.name, ent.version)
+		cacheDir := installer.CacheDir("Skill", ent.name, ent.version)
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -346,7 +346,7 @@ func TestInstall_ConflictWithForce_Succeeds(t *testing.T) {
 		{"force-skill", "1.0.0"},
 		{"force-skill", "2.0.0"},
 	} {
-		cacheDir := installer.CacheDir(ent.name, ent.version)
+		cacheDir := installer.CacheDir("Skill", ent.name, ent.version)
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -422,8 +422,8 @@ func TestInstall_ReinstallAll_RoutesPromptToPromptsDir(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	skillCache := installer.CacheDir("my-skill", "1.0.0")
-	promptCache := installer.CacheDir("my-prompt", "1.0.0")
+	skillCache := installer.CacheDir("Skill", "my-skill", "1.0.0")
+	promptCache := installer.CacheDir("Prompt", "my-prompt", "1.0.0")
 	if err := os.MkdirAll(skillCache, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func TestInstall_OCI_DigestCacheHit_SkipsPull(t *testing.T) {
 		t.Fatalf("first install: %v", err)
 	}
 
-	cacheDir := installer.CacheDir("digest-cache-hit", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "digest-cache-hit", "1.0.0")
 	digestPath := filepath.Join(cacheDir, ".oci-digest")
 	digestBytes, err := os.ReadFile(digestPath)
 	if err != nil {
@@ -692,7 +692,7 @@ func TestInstall_CrossScopeNoConflict(t *testing.T) {
 		{"skill-a", "1.0.0"},
 		{"skill-a", "2.0.0"},
 	} {
-		cacheDir := installer.CacheDir(ent.name, ent.version)
+		cacheDir := installer.CacheDir("Skill", ent.name, ent.version)
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -769,7 +769,7 @@ func TestInstall_SameScopeConflict(t *testing.T) {
 		{"skill-a", "1.0.0"},
 		{"skill-a", "2.0.0"},
 	} {
-		cacheDir := installer.CacheDir(ent.name, ent.version)
+		cacheDir := installer.CacheDir("Skill", ent.name, ent.version)
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1024,7 +1024,7 @@ func TestInstall_LocalDir_CacheCorrectness(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	cacheDir := installer.CacheDir("cache-test", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "cache-test", "1.0.0")
 	if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
 		t.Errorf("artifact.json missing from cache: %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TestInstall_LocalDir_MultipleFiles(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	cacheDir := installer.CacheDir("multi-file", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "multi-file", "1.0.0")
 	for _, f := range []string{"SKILL.md", "lib/helper.md", "prompts/system.md"} {
 		if _, err := os.Stat(filepath.Join(cacheDir, filepath.FromSlash(f))); err != nil {
 			t.Errorf("%s missing from cache: %v", f, err)
@@ -1358,7 +1358,7 @@ func TestInstall_LocalDir_PartialCopyCleanup(t *testing.T) {
 		t.Fatal("expected error for unreadable spec file during copy")
 	}
 
-	cacheDir := installer.CacheDir("partial-copy", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "partial-copy", "1.0.0")
 	if _, statErr := os.Stat(cacheDir); !os.IsNotExist(statErr) {
 		t.Errorf("cache dir should be removed after partial copy failure, stat err: %v", statErr)
 	}
@@ -1435,7 +1435,7 @@ func TestInstall_LocalDir_WithDeps(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	depCacheDir := installer.CacheDir(depName, depVersion)
+	depCacheDir := installer.CacheDir("Skill", depName, depVersion)
 	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1542,7 +1542,7 @@ func TestInstall_LocalDir_SkillWithPromptDep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	depCacheDir := installer.CacheDir(depName, depVersion)
+	depCacheDir := installer.CacheDir("Prompt", depName, depVersion)
 	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1671,7 +1671,7 @@ func TestInstall_LocalDir_CrossKindSameNameNoConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	depCacheDir := installer.CacheDir(depName, depVersion)
+	depCacheDir := installer.CacheDir("Prompt", depName, depVersion)
 	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

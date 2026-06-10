@@ -35,17 +35,45 @@ func TestCacheRoot_DefaultsToHome(t *testing.T) {
 func TestCacheDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	got := CacheDir("foo", "1.0.0")
-	want := filepath.Join(dir, "cache", "foo@1.0.0")
+	got := CacheDir("Skill", "foo", "1.0.0")
+	want := filepath.Join(dir, "cache", "Skill", "foo@1.0.0")
 	if got != want {
-		t.Errorf("CacheDir(%q, %q) = %q, want %q", "foo", "1.0.0", got, want)
+		t.Errorf("CacheDir(%q, %q, %q) = %q, want %q", "Skill", "foo", "1.0.0", got, want)
+	}
+}
+
+func TestFindCacheDir_Found(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	cacheDir := CacheDir("Prompt", "my-prompt", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := FindCacheDir("my-prompt", "1.0.0")
+	if !ok {
+		t.Fatal("FindCacheDir should find existing entry")
+	}
+	if got != cacheDir {
+		t.Errorf("FindCacheDir = %q, want %q", got, cacheDir)
+	}
+}
+
+func TestFindCacheDir_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	_, ok := FindCacheDir("nonexistent", "1.0.0")
+	if ok {
+		t.Fatal("FindCacheDir should return false for missing entry")
 	}
 }
 
 func TestEnsureInCache_SkipsWhenArtifactJSONExists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("skip", "1.0.0")
+	cacheDir := CacheDir("Skill", "skip", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +96,7 @@ func TestEnsureInCache_SkipsWhenArtifactJSONExists(t *testing.T) {
 func TestEnsureInCache_CallsPullWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("missing", "1.0.0")
+	cacheDir := CacheDir("Skill", "missing", "1.0.0")
 	var pullOutput string
 	err := EnsureInCache(context.Background(), cacheDir, func(ctx context.Context, outputDir string) error {
 		pullOutput = outputDir
@@ -88,7 +116,7 @@ func TestEnsureInCache_CallsPullWhenMissing(t *testing.T) {
 func TestEnsureInCache_PropagatesPullError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("err", "1.0.0")
+	cacheDir := CacheDir("Skill", "err", "1.0.0")
 	wantErr := os.ErrNotExist
 	err := EnsureInCache(context.Background(), cacheDir, func(ctx context.Context, outputDir string) error {
 		return wantErr
@@ -142,7 +170,7 @@ func TestReadDigest_ReturnsEmptyWhenFileMissing(t *testing.T) {
 func TestEnsureInCache_DigestMatch_SkipsPull(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("digest-match", "1.0.0")
+	cacheDir := CacheDir("Skill", "digest-match", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +200,7 @@ func TestEnsureInCache_DigestMatch_SkipsPull(t *testing.T) {
 func TestEnsureInCache_DigestMismatch_Repulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("digest-mismatch", "1.0.0")
+	cacheDir := CacheDir("Skill", "digest-mismatch", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +238,7 @@ func TestEnsureInCache_DigestMismatch_Repulls(t *testing.T) {
 func TestEnsureInCache_DigestResolveError_Repulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("digest-error", "1.0.0")
+	cacheDir := CacheDir("Skill", "digest-error", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +267,7 @@ func TestEnsureInCache_DigestResolveError_Repulls(t *testing.T) {
 func TestEnsureInCache_NoStoredDigest_Repulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("no-digest", "1.0.0")
+	cacheDir := CacheDir("Skill", "no-digest", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +302,7 @@ func TestEnsureInCache_NoStoredDigest_Repulls(t *testing.T) {
 func TestEnsureInCache_NilDigestFunc_SkipsPull(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("nil-digest", "1.0.0")
+	cacheDir := CacheDir("Skill", "nil-digest", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +326,7 @@ func TestEnsureInCache_NilDigestFunc_SkipsPull(t *testing.T) {
 func TestEnsureInCache_CacheMiss_PullsAndWritesDigest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("cache-miss", "1.0.0")
+	cacheDir := CacheDir("Skill", "cache-miss", "1.0.0")
 
 	digest := "sha256:fresh"
 	pullCalled := false
@@ -327,7 +355,7 @@ func TestEnsureInCache_CacheMiss_PullsAndWritesDigest(t *testing.T) {
 func TestEnsureInCache_CacheMiss_DigestFuncError_PullsNoDigest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("cache-miss-err", "1.0.0")
+	cacheDir := CacheDir("Skill", "cache-miss-err", "1.0.0")
 
 	pullCalled := false
 	err := EnsureInCache(context.Background(), cacheDir, func(ctx context.Context, outputDir string) error {
@@ -355,7 +383,7 @@ func TestEnsureInCache_CacheMiss_DigestFuncError_PullsNoDigest(t *testing.T) {
 func TestEnsureInCache_CacheMiss_NilDigestFunc_Pulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("cache-miss-nil", "1.0.0")
+	cacheDir := CacheDir("Skill", "cache-miss-nil", "1.0.0")
 
 	pullCalled := false
 	err := EnsureInCache(context.Background(), cacheDir, func(ctx context.Context, outputDir string) error {
@@ -381,7 +409,7 @@ func TestEnsureInCache_CacheMiss_NilDigestFunc_Pulls(t *testing.T) {
 func TestEnsureInCache_TransientDigestError_RetrySucceeds(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("transient", "1.0.0")
+	cacheDir := CacheDir("Skill", "transient", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +450,7 @@ func TestEnsureInCache_TransientDigestError_RetrySucceeds(t *testing.T) {
 func TestEnsureInCache_IncompleteCacheDir_Repulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("incomplete", "1.0.0")
+	cacheDir := CacheDir("Skill", "incomplete", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +471,7 @@ func TestEnsureInCache_IncompleteCacheDir_Repulls(t *testing.T) {
 func TestEnsureInCache_DigestFileCorrupted_Repulls(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("corrupt-digest", "1.0.0")
+	cacheDir := CacheDir("Skill", "corrupt-digest", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +529,7 @@ func TestEnsureInCache_StatPermissionError(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("stat-err", "1.0.0")
+	cacheDir := CacheDir("Skill", "stat-err", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +561,7 @@ func TestEnsureInCache_RemoveStaleCacheFails(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("remove-err", "1.0.0")
+	cacheDir := CacheDir("Skill", "remove-err", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +630,7 @@ func TestEnsureInCache_WriteDigestFailure_PullStillSucceeds(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("write-digest-fail", "1.0.0")
+	cacheDir := CacheDir("Skill", "write-digest-fail", "1.0.0")
 
 	digest := "sha256:test"
 	err := EnsureInCache(context.Background(), cacheDir, func(ctx context.Context, outputDir string) error {

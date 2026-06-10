@@ -138,7 +138,7 @@ demo-out/
   example-prompt/       # OCI dependency (Prompt)
 ```
 
-## Step 5 -- Install and uninstall an artifact
+## Step 5 — Install and uninstall an artifact
 
 Install copies the pulled artifacts into the target's directory (e.g. `~/.cursor/skills` for Cursor skills, `~/.claude/workflows/` for Claude workflows):
 

@@ -144,8 +144,8 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirB := installer.CacheDir("skill-b", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirB := installer.CacheDir("Skill", "skill-b", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestUninstall_AcceptsNameVersionRef(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "example-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("example-skill", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "example-skill", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -269,9 +269,9 @@ func TestUninstall_PreservesNonOrphanDeps(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirB := installer.CacheDir("skill-b", "1.0.0")
-	cacheDirC := installer.CacheDir("skill-c", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirB := installer.CacheDir("Skill", "skill-b", "1.0.0")
+	cacheDirC := installer.CacheDir("Skill", "skill-c", "1.0.0")
 	for _, d := range []string{cacheDirA, cacheDirB, cacheDirC} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -340,7 +340,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		}
-		d := installer.CacheDir(name, "1.0.0")
+		d := installer.CacheDir("Skill", name, "1.0.0")
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -355,7 +355,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"root-a", "root-b", "shared-dep"} {
-		if err := installer.InstallToTarget(installer.CacheDir(name, "1.0.0"), targetDir, name); err != nil {
+		if err := installer.InstallToTarget(installer.CacheDir("Skill", name, "1.0.0"), targetDir, name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -411,7 +411,7 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "root-x", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDirA := installer.CacheDir("root-x", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "root-x", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "skill-a", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +585,7 @@ func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "skill-a", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +668,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		}
-		cacheDir := installer.CacheDir(name, "1.0.0")
+		cacheDir := installer.CacheDir("Skill", name, "1.0.0")
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -684,7 +684,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"root-a", "dep-x"} {
-		cacheDir := installer.CacheDir(name, "1.0.0")
+		cacheDir := installer.CacheDir("Skill", name, "1.0.0")
 		if err := installer.InstallToTarget(cacheDir, globalTargetDir, name); err != nil {
 			t.Fatal(err)
 		}
@@ -698,7 +698,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	if err := os.MkdirAll(projectTargetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cacheDir := installer.CacheDir("root-b", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "root-b", "1.0.0")
 	if err := installer.InstallToTarget(cacheDir, projectTargetDir, "root-b"); err != nil {
 		t.Fatal(err)
 	}
@@ -763,8 +763,8 @@ func TestUninstall_RemovesPromptOrphansFromPromptsDir(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "prompt.md", Files: []string{"prompt.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirPrompt := installer.CacheDir("prompt-dep", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("Prompt", "prompt-dep", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -829,9 +829,9 @@ func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) 
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	cacheDirSkill := installer.CacheDir("shared-name", "1.0.0")
-	cacheDirPrompt := installer.CacheDir("shared-name", "2.0.0")
-	cacheDirRoot := installer.CacheDir("root-skill", "1.0.0")
+	cacheDirSkill := installer.CacheDir("Skill", "shared-name", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("Prompt", "shared-name", "2.0.0")
+	cacheDirRoot := installer.CacheDir("Skill", "root-skill", "1.0.0")
 	for _, d := range []string{cacheDirSkill, cacheDirPrompt, cacheDirRoot} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -973,7 +973,7 @@ func TestUninstall_KindFlag_Disambiguates(t *testing.T) {
 			Metadata:   artifact.Metadata{Name: "shared-name", Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "file.md", Files: []string{"file.md"}},
 		}
-		cacheDir := installer.CacheDir("shared-name", "1.0.0")
+		cacheDir := installer.CacheDir(kind, "shared-name", "1.0.0")
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1015,6 +1015,22 @@ func TestUninstall_KindFlag_Disambiguates(t *testing.T) {
 	}
 }
 
+func TestUninstall_InvalidKind_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "--kind", "Foo", "some-artifact"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall --kind Foo: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported kind") {
+		t.Errorf("error should mention 'unsupported kind', got: %v", err)
+	}
+}
+
 func TestUninstall_Workflow_RemovesFromWorkflowsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
@@ -1026,7 +1042,7 @@ func TestUninstall_Workflow_RemovesFromWorkflowsDir(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
 	}
-	cacheDir := installer.CacheDir("thorough-review", "1.0.0")
+	cacheDir := installer.CacheDir("Workflow", "thorough-review", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

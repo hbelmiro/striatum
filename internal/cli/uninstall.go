@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/spf13/cobra"
 )
@@ -48,7 +49,7 @@ func newUninstallCmd() *cobra.Command {
 
 // normalizeUninstallName maps a plain name:version (no '/', not "oci:") to name so uninstall
 // accepts the same short ref style as install. Full registry refs and oci: refs are left unchanged;
-// for those, pass the skill name as stored in the install DB (not the full reference).
+// for those, pass the artifact name as stored in the install DB (not the full reference).
 func normalizeUninstallName(arg string) string {
 	arg = strings.TrimSpace(arg)
 	if strings.Contains(arg, "/") || strings.HasPrefix(arg, "oci:") {
@@ -61,6 +62,9 @@ func normalizeUninstallName(arg string) string {
 }
 
 func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter string) error {
+	if kindFilter != "" && !artifact.IsSupportedKind(kindFilter) {
+		return fmt.Errorf("unsupported kind %q; supported: %s", kindFilter, artifact.SupportedKindsList())
+	}
 	entries, err := installer.LoadInstalled()
 	if err != nil {
 		return fmt.Errorf("load installed: %w", err)

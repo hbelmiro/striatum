@@ -29,7 +29,7 @@ go test -tags=integration ./...
 
 - **Go**: Prefer standard library and existing deps (`oras.land/oras-go/v2`, `github.com/spf13/cobra`, `github.com/opencontainers/image-spec`).
 - **CLI**: Subcommands and flags live in `internal/cli/`; registry and artifact logic in `pkg/`. For validate, pack, and push, `-f` / `--manifest` selects a manifest **file** only when the basename is `artifact.json` (case-insensitive); any other basename is treated as a project directory and `artifact.json` is appended.
-- **Cache**: All artifacts are always cached at `~/.striatum/cache/<name>@<version>/` regardless of kind. The cache is kind-agnostic.
+- **Cache**: Artifacts are cached at `~/.striatum/cache/<kind>/<name>@<version>/` (e.g. `cache/Skill/my-skill@1.0.0/`). `FindCacheDir(name, version)` probes all kind subdirectories when the caller does not know the kind.
 - **Docs**: [README.md](README.md) is the source of truth for behavior; [docs/demo.md](docs/demo.md) for end-to-end flows.
 
 ## Commands (reference)

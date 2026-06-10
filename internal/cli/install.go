@@ -70,7 +70,7 @@ func runReinstallAll(cmd *cobra.Command) error {
 			}
 			return err
 		}
-		cacheDir := installer.CacheDir(e.Name, e.Version)
+		cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
 		if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
 			if !os.IsNotExist(statErr) {
 				return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
@@ -248,7 +248,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("unsafe artifact name or version %q / %q", name, version)
 			}
-			cacheDir := installer.CacheDir(name, version)
+			cacheDir := installer.CacheDir(rootManifest.Kind, name, version)
 			if err := atomicReplaceCacheDir(pulledDir, cacheDir); err != nil {
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("cache git artifact: %w", err)
@@ -359,7 +359,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		return err
 	}
 
-	cacheDir := installer.CacheDir(name, version)
+	cacheDir := installer.CacheDir(rootManifest.Kind, name, version)
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("clean cache dir: %w", err)
 	}
@@ -368,14 +368,14 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 	}
 	if err := copyLocalToCache(absPath, cacheDir, rootManifest.Spec.Files); err != nil {
 		_ = os.RemoveAll(cacheDir)
-		return fmt.Errorf("cache local skill: %w", err)
+		return fmt.Errorf("cache local artifact: %w", err)
 	}
 
 	if len(resolved) > 1 {
 		cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 		for _, r := range resolved[1:] {
 			res := r
-			depCacheDir := installer.CacheDir(res.Name, res.Version)
+			depCacheDir := installer.CacheDir(resolvedKind(res), res.Name, res.Version)
 			pullFn := func(ctx context.Context, _ string) error {
 				created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
 					return pullDependency(ctx, res.Dependency, stagingDir)
@@ -428,7 +428,7 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 		return fmt.Errorf("resolve artifact.json: %w", err)
 	}
 	if realManifest != realSrcDir && !strings.HasPrefix(realManifest, srcPrefix) {
-		return fmt.Errorf("artifact.json resolves outside skill directory via symlink")
+		return fmt.Errorf("artifact.json resolves outside artifact directory via symlink")
 	}
 	data, err := os.ReadFile(manifestSrc)
 	if err != nil {
@@ -449,7 +449,7 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 			return fmt.Errorf("resolve %s: %w", f, err)
 		}
 		if realSrc != realSrcDir && !strings.HasPrefix(realSrc, srcPrefix) {
-			return fmt.Errorf("file %q resolves outside skill directory via symlink", f)
+			return fmt.Errorf("file %q resolves outside artifact directory via symlink", f)
 		}
 
 		dst := filepath.Join(cacheDir, filepath.FromSlash(f))
@@ -506,7 +506,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		if err != nil {
 			return fmt.Errorf("resolve target dir for %s: %w", r.Name, err)
 		}
-		cd := installer.CacheDir(r.Name, r.Version)
+		cd := installer.CacheDir(kind, r.Name, r.Version)
 		if err := installer.InstallToTarget(cd, td, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
 		}
@@ -653,7 +653,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	for i, r := range resolved {
 		idx, res := i, r
-		cacheDir := installer.CacheDir(res.Name, res.Version)
+		cacheDir := installer.CacheDir(resolvedKind(res), res.Name, res.Version)
 
 		// Construct DigestFunc based on artifact type
 		var digestFn installer.DigestFunc
@@ -793,6 +793,9 @@ func pullToStagingDir(parentDir, artifactName string, pullFn func(stagingDir str
 func atomicReplaceCacheDir(created, cacheDir string) error {
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("remove existing cache dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cacheDir), 0o755); err != nil {
+		return fmt.Errorf("create cache parent dir: %w", err)
 	}
 	if err := os.Rename(created, cacheDir); err != nil {
 		if rmErr := os.RemoveAll(created); rmErr != nil {

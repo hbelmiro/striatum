@@ -65,7 +65,7 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 type promptDepPuller func(ctx context.Context, r resolver.ResolvedArtifact) error
 
 func defaultPromptPuller(ctx context.Context, r resolver.ResolvedArtifact) error {
-	cacheDir := installer.CacheDir(r.Name, r.Version)
+	cacheDir := installer.CacheDir(resolvedKind(r), r.Name, r.Version)
 	parentDir := filepath.Dir(cacheDir)
 	created, cleanup, err := pullToStagingDir(parentDir, r.Name, func(stagingDir string) error {
 		return pullDependency(ctx, r.Dependency, stagingDir)
@@ -87,12 +87,15 @@ func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDep
 	if err != nil {
 		return nil, fmt.Errorf("resolve dependencies: %w", err)
 	}
+	if err := validateResolvedPaths(resolved[1:]); err != nil {
+		return nil, err
+	}
 	var depFiles []oci.DepFile
 	for _, r := range resolved[1:] {
 		if r.Manifest == nil || r.Manifest.Kind != "Prompt" {
 			continue
 		}
-		cacheDir := installer.CacheDir(r.Name, r.Version)
+		cacheDir := installer.CacheDir(r.Manifest.Kind, r.Name, r.Version)
 		for _, f := range r.Manifest.Spec.Files {
 			if f == "" || strings.Contains(f, "..") || filepath.IsAbs(f) {
 				return nil, fmt.Errorf("prompt dependency %q: invalid file path %q", r.Name, f)

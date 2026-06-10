@@ -45,7 +45,7 @@ func TestDepToCacheCandidate(t *testing.T) {
 
 func setupCachedManifest(t *testing.T, name, version string) {
 	t.Helper()
-	cacheDir := installer.CacheDir(name, version)
+	cacheDir := installer.CacheDir("Skill", name, version)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestLoadCachedManifest_CorruptJSON_Recovers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
-	cacheDir := installer.CacheDir("corrupt", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "corrupt", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestLoadCachedManifest_WrongName_Recovers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
-	cacheDir := installer.CacheDir("wrong-name", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "wrong-name", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestLoadCachedManifest_UnsupportedKind_Recovers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
-	cacheDir := installer.CacheDir("my-thing", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "my-thing", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestLoadCachedManifest_PromptKind_CacheHit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 
-	cacheDir := installer.CacheDir("my-prompt", "1.0.0")
+	cacheDir := installer.CacheDir("Prompt", "my-prompt", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -18,14 +18,11 @@ import (
 // the given name@version. Returns (manifest, nil) on cache hit, (nil, nil) on cache miss
 // or after removing a corrupt entry, or (nil, error) on unrecoverable failures.
 func loadCachedManifest(name, version string) (*artifact.Manifest, error) {
-	cacheDir := installer.CacheDir(name, version)
-	manifestPath := filepath.Join(cacheDir, "artifact.json")
-	if _, err := os.Stat(manifestPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("stat cache %s: %w", manifestPath, err)
+	cacheDir, ok := installer.FindCacheDir(name, version)
+	if !ok {
+		return nil, nil
 	}
+	manifestPath := filepath.Join(cacheDir, "artifact.json")
 	m, err := artifact.Load(manifestPath)
 	if err != nil {
 		if removeErr := os.Remove(manifestPath); removeErr != nil {

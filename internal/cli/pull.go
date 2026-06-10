@@ -102,7 +102,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				return err
 			}
 			for _, r := range resolved {
-				cacheDir := installer.CacheDir(r.Name, r.Version)
+				cacheDir := installer.CacheDir(resolvedKind(r), r.Name, r.Version)
 				if err := installer.InstallToTarget(cacheDir, outputDir, r.Name); err != nil {
 					return fmt.Errorf("copy %s to output: %w", r.Name, err)
 				}

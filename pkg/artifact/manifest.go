@@ -35,6 +35,16 @@ func IsSupportedKind(kind string) bool {
 	return supportedKinds[kind]
 }
 
+// SupportedKinds returns a sorted slice of all supported artifact kinds.
+func SupportedKinds() []string {
+	kinds := make([]string, 0, len(supportedKinds))
+	for k := range supportedKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
 // SupportedKindsList returns a comma-separated list of supported artifact kinds (e.g. "Skill").
 func SupportedKindsList() string {
 	return supportedKindsList()

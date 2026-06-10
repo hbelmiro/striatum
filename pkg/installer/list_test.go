@@ -41,7 +41,7 @@ func TestListCachedArtifacts_EmptyCacheDir(t *testing.T) {
 func TestListCachedArtifacts_OneValidEntry(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("foo", "1.0.0")
+	cacheDir := CacheDir("Skill", "foo", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestListCachedArtifacts_MultipleEntriesSorted(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
 	for _, name := range []string{"b", "a"} {
-		cacheDir := CacheDir(name, "1.0.0")
+		cacheDir := CacheDir("Skill", name, "1.0.0")
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -96,11 +96,10 @@ func TestListCachedArtifacts_MultipleEntriesSorted(t *testing.T) {
 func TestListCachedArtifacts_SkipsUnsupportedKind(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("other-type", "1.0.0")
+	cacheDir := CacheDir("VectorIndex", "other-type", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Valid manifest but unsupported kind
 	writeArtifactManifest(t, cacheDir, &artifact.Manifest{
 		APIVersion: "striatum.dev/v1alpha2",
 		Kind:       "VectorIndex",
@@ -119,7 +118,7 @@ func TestListCachedArtifacts_SkipsUnsupportedKind(t *testing.T) {
 func TestListCachedArtifacts_SkipsCorruptManifest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("corrupt", "1.0.0")
+	cacheDir := CacheDir("Skill", "corrupt", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -138,11 +137,10 @@ func TestListCachedArtifacts_SkipsCorruptManifest(t *testing.T) {
 func TestListCachedArtifacts_SkipsDirWithoutArtifactJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("partial", "1.0.0")
+	cacheDir := CacheDir("Skill", "partial", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// No artifact.json
 	got, err := ListCachedArtifacts()
 	if err != nil {
 		t.Fatalf("ListCachedArtifacts(): err = %v", err)
@@ -155,11 +153,11 @@ func TestListCachedArtifacts_SkipsDirWithoutArtifactJSON(t *testing.T) {
 func TestListCachedArtifacts_SkipsDirNameWithoutAt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheRoot := filepath.Join(dir, cacheDirName)
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+	kindDir := filepath.Join(dir, cacheDirName, "Skill")
+	if err := os.MkdirAll(kindDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	invalidDir := filepath.Join(cacheRoot, "invalid")
+	invalidDir := filepath.Join(kindDir, "invalid")
 	if err := os.MkdirAll(invalidDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -178,11 +176,11 @@ func TestListCachedArtifacts_SkipsDirNameWithoutAt(t *testing.T) {
 func TestListCachedArtifacts_SkipsEmptySkillName(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheRoot := filepath.Join(dir, cacheDirName)
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+	kindDir := filepath.Join(dir, cacheDirName, "Skill")
+	if err := os.MkdirAll(kindDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	emptyNameDir := filepath.Join(cacheRoot, "@1.0.0")
+	emptyNameDir := filepath.Join(kindDir, "@1.0.0")
 	if err := os.MkdirAll(emptyNameDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -204,12 +202,11 @@ func TestListCachedArtifacts_SkipsEmptySkillName(t *testing.T) {
 func TestListCachedArtifacts_NameWithMultipleAt_SplitOnLast(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	// Dir name "a@b@1.0.0" -> name "a@b", version "1.0.0"
-	cacheRoot := filepath.Join(dir, cacheDirName)
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+	kindDir := filepath.Join(dir, cacheDirName, "Skill")
+	if err := os.MkdirAll(kindDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	multiAtDir := filepath.Join(cacheRoot, "a@b@1.0.0")
+	multiAtDir := filepath.Join(kindDir, "a@b@1.0.0")
 	if err := os.MkdirAll(multiAtDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +231,7 @@ func TestListCachedArtifacts_NameWithMultipleAt_SplitOnLast(t *testing.T) {
 func TestListCachedArtifacts_IncludesWorkflow(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("my-wf", "2.0.0")
+	cacheDir := CacheDir("Workflow", "my-wf", "2.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +256,7 @@ func TestListCachedArtifacts_IncludesWorkflow(t *testing.T) {
 func TestListCachedArtifacts_IncludesPrompt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	cacheDir := CacheDir("severity-rubric", "1.0.0")
+	cacheDir := CacheDir("Prompt", "severity-rubric", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +288,7 @@ func TestListCachedArtifacts_MixedKinds_AllShown(t *testing.T) {
 		{"wf-b", "Workflow", "script.js"},
 		{"prompt-c", "Prompt", "prompt.md"},
 	} {
-		cacheDir := CacheDir(tc.name, "1.0.0")
+		cacheDir := CacheDir(tc.kind, tc.name, "1.0.0")
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}

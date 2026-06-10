@@ -268,7 +268,7 @@ func TestPack_Workflow_WithPromptDep_InlinesPromptFiles(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	// Set up a Prompt artifact in the cache
-	promptCacheDir := installer.CacheDir("severity-rubric", "1.0.0")
+	promptCacheDir := installer.CacheDir("Prompt", "severity-rubric", "1.0.0")
 	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestPack_Workflow_PromptDepNotInCache_AttemptsAutoPull(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	// Set up a Prompt manifest in cache but WITHOUT the actual file
-	promptCacheDir := installer.CacheDir("missing-prompt", "1.0.0")
+	promptCacheDir := installer.CacheDir("Prompt", "missing-prompt", "1.0.0")
 	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestPack_Skill_SkipsPromptInlining(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	promptCacheDir := installer.CacheDir("my-prompt", "1.0.0")
+	promptCacheDir := installer.CacheDir("Prompt", "my-prompt", "1.0.0")
 	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestPack_Workflow_MixedDeps_OnlyInlinesPrompts(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	// Set up a Prompt dep in cache
-	promptCacheDir := installer.CacheDir("my-prompt", "1.0.0")
+	promptCacheDir := installer.CacheDir("Prompt", "my-prompt", "1.0.0")
 	if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestPack_Workflow_MixedDeps_OnlyInlinesPrompts(t *testing.T) {
 	}
 
 	// Set up a Skill dep in cache
-	skillCacheDir := installer.CacheDir("helper-skill", "1.0.0")
+	skillCacheDir := installer.CacheDir("Skill", "helper-skill", "1.0.0")
 	if err := os.MkdirAll(skillCacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +591,7 @@ func TestPack_Workflow_MixedDeps_OnlyInlinesPrompts(t *testing.T) {
 
 func setupPromptInCache(t *testing.T, name, version, fileName, content string, writeFile bool) {
 	t.Helper()
-	cacheDir := installer.CacheDir(name, version)
+	cacheDir := installer.CacheDir("Prompt", name, version)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +632,7 @@ func TestResolvePromptDeps_AutoPulls_WhenFilesNotInCache(t *testing.T) {
 	pullCalled := false
 	fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
 		pullCalled = true
-		cacheDir := installer.CacheDir(r.Name, r.Version)
+		cacheDir := installer.CacheDir("Prompt", r.Name, r.Version)
 		return os.WriteFile(filepath.Join(cacheDir, "rubric.md"), []byte("# Rubric content"), 0o644)
 	}
 
@@ -733,7 +733,7 @@ func TestResolvePromptDeps_PathTraversal_ReturnsError(t *testing.T) {
 		{"nested traversal", "subdir/../../evil.txt"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			promptCacheDir := installer.CacheDir("bad-prompt-"+tc.name, "1.0.0")
+			promptCacheDir := installer.CacheDir("Prompt", "bad-prompt-"+tc.name, "1.0.0")
 			if err := os.MkdirAll(promptCacheDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -768,6 +768,63 @@ func TestResolvePromptDeps_PathTraversal_ReturnsError(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "invalid file path") {
 				t.Errorf("error should mention 'invalid file path', got: %v", err)
+			}
+		})
+	}
+}
+
+func TestResolvePromptDeps_UnsafeDepName_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	for _, tc := range []struct {
+		name    string
+		depName string
+		version string
+	}{
+		{"name with dot-dot", "..evil", "1.0.0"},
+		{"version with dot-dot", "ok-prompt", "..sneaky"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cacheDir := installer.CacheDir("Prompt", tc.depName, tc.version)
+			if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			promptManifest := &artifact.Manifest{
+				APIVersion: "striatum.dev/v1alpha2",
+				Kind:       "Prompt",
+				Metadata:   artifact.Metadata{Name: tc.depName, Version: tc.version},
+				Spec:       artifact.Spec{Entrypoint: "rubric.md", Files: []string{"rubric.md"}},
+			}
+			data, _ := json.Marshal(promptManifest)
+			if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(cacheDir, "rubric.md"), []byte("content"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			m := &artifact.Manifest{
+				APIVersion: "striatum.dev/v1alpha2",
+				Kind:       "Workflow",
+				Metadata:   artifact.Metadata{Name: "wf-" + tc.name, Version: "1.0.0"},
+				Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+				Dependencies: []artifact.Dependency{
+					&artifact.OCIDependency{RegistryHost: "ghcr.io", Repository: "test/" + tc.depName, Tag: tc.version},
+				},
+			}
+
+			fakePuller := func(ctx context.Context, r resolver.ResolvedArtifact) error {
+				return nil
+			}
+
+			_, err := resolvePromptDeps(context.Background(), m, fakePuller)
+			if err == nil {
+				t.Fatalf("expected error for dep %q@%q, got nil", tc.depName, tc.version)
+			}
+			if !strings.Contains(err.Error(), "unsafe artifact name") {
+				t.Errorf("error should mention 'unsafe artifact name', got: %v", err)
 			}
 		})
 	}
