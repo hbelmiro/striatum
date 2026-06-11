@@ -491,8 +491,16 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		existing = []installer.InstalledEntry{}
 	}
 
+	rootName := rootManifest.Metadata.Name
+	isEmbeddedDep := func(r resolver.ResolvedArtifact) bool {
+		return rootManifest.Kind == "Workflow" && resolvedKind(r) == "Prompt"
+	}
+
 	required := buildRequired(existing, normProject, target)
 	for _, r := range resolved {
+		if isEmbeddedDep(r) {
+			continue
+		}
 		kind := resolvedKind(r)
 		rKey := kind + "|" + r.Name
 		if v, ok := required[rKey]; ok && v != r.Version && !force {
@@ -500,19 +508,33 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		}
 	}
 
+	var workflowDepsDir string
+	if rootManifest.Kind == "Workflow" {
+		wfTarget, err := installer.Targets(target, projectPath, "Workflow")
+		if err != nil {
+			return fmt.Errorf("resolve workflow target dir: %w", err)
+		}
+		workflowDepsDir = filepath.Join(wfTarget, rootName, "deps")
+	}
+
 	for _, r := range resolved {
 		kind := resolvedKind(r)
+		cd := installer.CacheDir(kind, r.Name, r.Version)
+		if isEmbeddedDep(r) {
+			if err := installer.InstallToTarget(cd, workflowDepsDir, r.Name); err != nil {
+				return fmt.Errorf("install dep %s to workflow deps: %w", r.Name, err)
+			}
+			continue
+		}
 		td, err := installer.Targets(target, projectPath, kind)
 		if err != nil {
 			return fmt.Errorf("resolve target dir for %s: %w", r.Name, err)
 		}
-		cd := installer.CacheDir(kind, r.Name, r.Version)
 		if err := installer.InstallToTarget(cd, td, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
 		}
 	}
 
-	rootName := rootManifest.Metadata.Name
 	now := time.Now().UTC().Format(time.RFC3339)
 	byKey := make(map[string]*installer.InstalledEntry)
 	for i := range existing {
@@ -521,6 +543,9 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		byKey[key] = e
 	}
 	for _, r := range resolved {
+		if isEmbeddedDep(r) {
+			continue
+		}
 		kind := resolvedKind(r)
 		installedWith := rootName
 		if r.Name == rootName && r.Version == rootManifest.Metadata.Version {

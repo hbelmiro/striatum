@@ -2160,3 +2160,354 @@ func TestInstall_Workflow_OCI_Cursor_Rejected(t *testing.T) {
 		t.Errorf("error should mention claude, got %q", err.Error())
 	}
 }
+
+func TestInstall_Workflow_WithPromptDep_InstallsToDepDir(t *testing.T) {
+	home := t.TempDir()
+	wfDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	const depDigest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	depName := "review-shared"
+	depVersion := "1.0.0"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "512")
+			w.Header().Set("Docker-Content-Digest", depDigest)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	dockerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte(`{"auths":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
+	rootManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: srvHost,
+				Repository:   depName,
+				Tag:          depVersion,
+			},
+		},
+	}
+	data, err := json.Marshal(rootManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "review.js"), []byte("// workflow script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	depCacheDir := installer.CacheDir("Prompt", depName, depVersion)
+	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: depName, Version: depVersion},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	depData, err := json.Marshal(depManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "artifact.json"), depData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "severity-rubric.md"), []byte("# Severity Rubric"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.WriteDigest(depCacheDir, depDigest); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow with prompt dep: %v", err)
+	}
+
+	depsDir := filepath.Join(home, ".claude", "workflows", "thorough-review", "deps", depName)
+	if _, err := os.Stat(filepath.Join(depsDir, "severity-rubric.md")); err != nil {
+		t.Errorf("prompt dep should be in deps/ subdir: %v", err)
+	}
+
+	promptsDir := filepath.Join(home, ".claude", "prompts", depName)
+	if _, err := os.Stat(promptsDir); err == nil {
+		t.Errorf("prompt dep should NOT be installed to prompts/ dir, but %s exists", promptsDir)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 DB entry (workflow only), got %d", len(entries))
+	}
+	if entries[0].Name != "thorough-review" || entries[0].Kind != "Workflow" {
+		t.Errorf("expected workflow entry, got %s/%s", entries[0].Kind, entries[0].Name)
+	}
+}
+
+func TestInstall_Workflow_MultiplePromptDeps_AllInDeps(t *testing.T) {
+	home := t.TempDir()
+	wfDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	const depDigest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	deps := []struct {
+		name       string
+		version    string
+		entrypoint string
+		file       string
+		content    string
+	}{
+		{"review-shared", "1.0.0", "severity-rubric.md", "severity-rubric.md", "# Severity Rubric"},
+		{"go-code-review", "2.0.0", "go-checklist.md", "go-checklist.md", "# Go Checklist"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "512")
+			w.Header().Set("Docker-Content-Digest", depDigest)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	dockerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte(`{"auths":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
+	var ociDeps []artifact.Dependency
+	for _, d := range deps {
+		ociDeps = append(ociDeps, &artifact.OCIDependency{
+			RegistryHost: srvHost,
+			Repository:   d.name,
+			Tag:          d.version,
+		})
+	}
+
+	rootManifest := &artifact.Manifest{
+		APIVersion:   "striatum.dev/v1alpha2",
+		Kind:         "Workflow",
+		Metadata:     artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:         artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+		Dependencies: ociDeps,
+	}
+	data, err := json.Marshal(rootManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "review.js"), []byte("// workflow script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, d := range deps {
+		depCacheDir := installer.CacheDir("Prompt", d.name, d.version)
+		if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		depManifest := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       "Prompt",
+			Metadata:   artifact.Metadata{Name: d.name, Version: d.version},
+			Spec:       artifact.Spec{Entrypoint: d.entrypoint, Files: []string{d.file}},
+		}
+		depData, err := json.Marshal(depManifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(depCacheDir, "artifact.json"), depData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(depCacheDir, d.file), []byte(d.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := installer.WriteDigest(depCacheDir, depDigest); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow with multiple prompt deps: %v", err)
+	}
+
+	for _, d := range deps {
+		depsPath := filepath.Join(home, ".claude", "workflows", "thorough-review", "deps", d.name, d.file)
+		if _, err := os.Stat(depsPath); err != nil {
+			t.Errorf("prompt dep %s should be in deps/ subdir: %v", d.name, err)
+		}
+
+		promptsPath := filepath.Join(home, ".claude", "prompts", d.name)
+		if _, err := os.Stat(promptsPath); err == nil {
+			t.Errorf("prompt dep %s should NOT be in prompts/ dir", d.name)
+		}
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 DB entry (workflow only), got %d", len(entries))
+	}
+}
+
+func TestInstall_Workflow_PromptDepDoesNotConflictWithStandalonePrompt(t *testing.T) {
+	home := t.TempDir()
+	wfDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	const depDigest = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+	depName := "review-shared"
+	depVersion := "2.0.0"
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{{
+		Name:    depName,
+		Kind:    "Prompt",
+		Version: "1.0.0",
+		Target:  "claude",
+		Status:  "ok",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Content-Length", "512")
+			w.Header().Set("Docker-Content-Digest", depDigest)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	dockerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte(`{"auths":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
+	rootManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: srvHost,
+				Repository:   depName,
+				Tag:          depVersion,
+			},
+		},
+	}
+	data, err := json.Marshal(rootManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "review.js"), []byte("// workflow script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	depCacheDir := installer.CacheDir("Prompt", depName, depVersion)
+	if err := os.MkdirAll(depCacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: depName, Version: depVersion},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	depData, err := json.Marshal(depManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "artifact.json"), depData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCacheDir, "severity-rubric.md"), []byte("# Severity Rubric v2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.WriteDigest(depCacheDir, depDigest); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("should not conflict with standalone prompt: %v", err)
+	}
+
+	depsDir := filepath.Join(home, ".claude", "workflows", "thorough-review", "deps", depName)
+	if _, err := os.Stat(filepath.Join(depsDir, "severity-rubric.md")); err != nil {
+		t.Errorf("prompt dep should be in deps/ subdir: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	foundWorkflow := false
+	foundStandalonePrompt := false
+	for _, e := range entries {
+		if e.Name == "thorough-review" && e.Kind == "Workflow" {
+			foundWorkflow = true
+		}
+		if e.Name == depName && e.Kind == "Prompt" && e.Version == "1.0.0" {
+			foundStandalonePrompt = true
+		}
+	}
+	if !foundWorkflow {
+		t.Error("workflow DB entry missing")
+	}
+	if !foundStandalonePrompt {
+		t.Error("standalone prompt DB entry should be preserved")
+	}
+}
