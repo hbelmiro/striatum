@@ -11,43 +11,43 @@ import (
 	"github.com/hbelmiro/striatum/pkg/installer"
 )
 
-func TestSkillList_TargetWithoutInstalled_ReturnsError(t *testing.T) {
+func TestList_TargetWithoutInstalled_ReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "list", "--target", "cursor"})
+	root.SetArgs([]string{"list", "--target", "cursor"})
 	err := root.Execute()
 	if err == nil {
-		t.Error("skill list --target cursor without --installed: expected error")
+		t.Error("list --target cursor without --installed: expected error")
 	}
 	if err != nil && !strings.Contains(err.Error(), "only valid with --installed") {
 		t.Errorf("error should mention --target only valid with --installed: %v", err)
 	}
 }
 
-func TestSkillList_EmptyCache_ExitsZeroAndShowsNoSkills(t *testing.T) {
+func TestList_EmptyCache_ExitsZeroAndShowsNoArtifacts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list"})
+	root.SetArgs([]string{"list"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "No skills") {
-		t.Errorf("output should contain 'No skills'; got %q", got)
+	if !strings.Contains(got, "No artifacts") {
+		t.Errorf("output should contain 'No artifacts'; got %q", got)
 	}
 }
 
-func TestSkillList_OneCachedSkill_OutputContainsNameAndVersion(t *testing.T) {
+func TestList_OneCachedArtifact_OutputContainsNameAndVersion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
-	cacheDir := installer.CacheDir("foo", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "foo", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -60,9 +60,9 @@ func TestSkillList_OneCachedSkill_OutputContainsNameAndVersion(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list"})
+	root.SetArgs([]string{"list"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	got := out.String()
 	if !strings.Contains(got, "foo") || !strings.Contains(got, "1.0.0") {
@@ -70,47 +70,46 @@ func TestSkillList_OneCachedSkill_OutputContainsNameAndVersion(t *testing.T) {
 	}
 }
 
-func TestSkillList_Installed_Empty_ExitsZero(t *testing.T) {
+func TestList_Installed_Empty_ExitsZero(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
-	// No installed.yaml or empty
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed: %v", err)
+		t.Fatalf("list --installed: %v", err)
 	}
 	got := out.String()
 	if !strings.Contains(got, "No ") {
-		t.Errorf("output should indicate no installed skills (e.g. 'No installed skills'); got %q", got)
+		t.Errorf("output should indicate no installed artifacts; got %q", got)
 	}
 }
 
-func TestSkillList_Installed_WithEntries_ShowsTarget(t *testing.T) {
+func TestList_Installed_WithEntries_ShowsTarget(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "bar", Version: "2.0.0", Registry: "reg", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "bar", Kind: "Skill", Version: "2.0.0", Registry: "reg", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed: %v", err)
+		t.Fatalf("list --installed: %v", err)
 	}
 	got := out.String()
 	if !strings.Contains(got, "bar") || !strings.Contains(got, "2.0.0") || !strings.Contains(got, "cursor") {
-		t.Errorf("output should contain skill, version, target; got %q", got)
+		t.Errorf("output should contain name, version, target; got %q", got)
 	}
 }
 
-func TestSkillList_Installed_CorruptInstalledYAML_ReturnsError(t *testing.T) {
+func TestList_Installed_CorruptInstalledYAML_ReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
@@ -122,32 +121,32 @@ func TestSkillList_Installed_CorruptInstalledYAML_ReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	err := root.Execute()
 	if err == nil {
-		t.Error("skill list --installed with corrupt installed.yaml: expected error")
+		t.Error("list --installed with corrupt installed.yaml: expected error")
 	}
 	if err != nil && !strings.Contains(err.Error(), "load installed") {
 		t.Errorf("error should mention load installed: %v", err)
 	}
 }
 
-func TestSkillList_Installed_WithTarget_Filters(t *testing.T) {
+func TestList_Installed_WithTarget_Filters(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "only-cursor", Version: "1.0.0", Registry: "r", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "only-claude", Version: "1.0.0", Registry: "r", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "only-cursor", Kind: "Skill", Version: "1.0.0", Registry: "r", Target: "cursor", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "only-claude", Kind: "Skill", Version: "1.0.0", Registry: "r", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed", "--target", "cursor"})
+	root.SetArgs([]string{"list", "--installed", "--target", "cursor"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed --target cursor: %v", err)
+		t.Fatalf("list --installed --target cursor: %v", err)
 	}
 	got := out.String()
 	if !strings.Contains(got, "only-cursor") {
@@ -155,6 +154,36 @@ func TestSkillList_Installed_WithTarget_Filters(t *testing.T) {
 	}
 	if strings.Contains(got, "only-claude") {
 		t.Errorf("output should not contain only-claude when filtering by cursor; got %q", got)
+	}
+}
+
+func TestList_CachedWorkflow_ShowsKindColumn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	cacheDir := installer.CacheDir("Workflow", "my-wf", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifactForList(t, cacheDir, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "script.js", Files: []string{"script.js"}},
+	})
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"list"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "KIND") {
+		t.Errorf("output should contain KIND header; got %q", got)
+	}
+	if !strings.Contains(got, "Workflow") {
+		t.Errorf("output should contain Workflow kind; got %q", got)
 	}
 }
 
@@ -169,13 +198,13 @@ func writeArtifactForList(t *testing.T, dir string, m *artifact.Manifest) {
 	}
 }
 
-func TestSkillList_Installed_ShowsScopeColumn(t *testing.T) {
+func TestList_Installed_ShowsKindColumn(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,9 +212,37 @@ func TestSkillList_Installed_ShowsScopeColumn(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed: %v", err)
+		t.Fatalf("list --installed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "KIND") {
+		t.Errorf("output should contain KIND header; got %q", got)
+	}
+	if !strings.Contains(got, "Workflow") {
+		t.Errorf("output should contain Workflow kind; got %q", got)
+	}
+}
+
+func TestList_Installed_ShowsScopeColumn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	out := &strings.Builder{}
+	root.SetOut(out)
+	root.SetArgs([]string{"list", "--installed"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("list --installed: %v", err)
 	}
 
 	got := out.String()
@@ -197,14 +254,14 @@ func TestSkillList_Installed_ShowsScopeColumn(t *testing.T) {
 	}
 }
 
-func TestSkillList_Installed_ProjectScopeShowsPath(t *testing.T) {
+func TestList_Installed_ProjectScopeShowsPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
 	projectPath := "/Users/dev/project-a"
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -212,9 +269,9 @@ func TestSkillList_Installed_ProjectScopeShowsPath(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed: %v", err)
+		t.Fatalf("list --installed: %v", err)
 	}
 
 	got := out.String()
@@ -223,15 +280,15 @@ func TestSkillList_Installed_ProjectScopeShowsPath(t *testing.T) {
 	}
 }
 
-func TestSkillList_Installed_MixedScopes(t *testing.T) {
+func TestList_Installed_MixedScopes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
 	projectPath := "/Users/dev/project-a"
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "project-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "global-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "project-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectPath, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,9 +296,9 @@ func TestSkillList_Installed_MixedScopes(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed"})
+	root.SetArgs([]string{"list", "--installed"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed: %v", err)
+		t.Fatalf("list --installed: %v", err)
 	}
 
 	got := out.String()
@@ -259,7 +316,7 @@ func TestSkillList_Installed_MixedScopes(t *testing.T) {
 	}
 }
 
-func TestSkillList_Installed_ProjectFilter(t *testing.T) {
+func TestList_Installed_ProjectFilter(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
@@ -268,9 +325,9 @@ func TestSkillList_Installed_ProjectFilter(t *testing.T) {
 	projectB := t.TempDir()
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "project-a-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectA, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "project-b-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectB, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "global-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "project-a-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectA, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "project-b-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectB, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -278,9 +335,9 @@ func TestSkillList_Installed_ProjectFilter(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed", "--project", projectA})
+	root.SetArgs([]string{"list", "--installed", "--project", projectA})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed --project: %v", err)
+		t.Fatalf("list --installed --project: %v", err)
 	}
 
 	got := out.String()
@@ -295,13 +352,13 @@ func TestSkillList_Installed_ProjectFilter(t *testing.T) {
 	}
 }
 
-func TestSkillList_Installed_ProjectFilter_NoMatch(t *testing.T) {
+func TestList_Installed_ProjectFilter_NoMatch(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "global-skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "global-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -311,27 +368,27 @@ func TestSkillList_Installed_ProjectFilter_NoMatch(t *testing.T) {
 	root := NewRootCommand()
 	out := &strings.Builder{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--installed", "--project", nonExistentProject})
+	root.SetArgs([]string{"list", "--installed", "--project", nonExistentProject})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("skill list --installed --project (no match): %v", err)
+		t.Fatalf("list --installed --project (no match): %v", err)
 	}
 
 	got := out.String()
 	if !strings.Contains(got, "No ") {
-		t.Errorf("output should indicate no installed skills; got %q", got)
+		t.Errorf("output should indicate no installed artifacts; got %q", got)
 	}
 }
 
-func TestSkillList_ProjectWithoutInstalled_Errors(t *testing.T) {
+func TestList_ProjectWithoutInstalled_Errors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "list", "--project", "/some/path"})
+	root.SetArgs([]string{"list", "--project", "/some/path"})
 	err := root.Execute()
 	if err == nil {
-		t.Error("skill list --project without --installed: expected error")
+		t.Error("list --project without --installed: expected error")
 	}
 	if err != nil && !strings.Contains(err.Error(), "only valid with --installed") {
 		t.Errorf("error should mention --project only valid with --installed: %v", err)

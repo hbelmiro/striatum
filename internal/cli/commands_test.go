@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var subcommands = []string{"init", "validate", "pack", "push", "pull", "inspect", "skill"}
+var subcommands = []string{"init", "validate", "pack", "push", "pull", "inspect", "install", "uninstall", "list"}
 
 func TestSubcommands_Registered(t *testing.T) {
 	root := NewRootCommand()
@@ -33,25 +33,25 @@ func TestSubcommand_HelpExitsZero(t *testing.T) {
 	}
 }
 
-var skillSubcommandsRequiringArg = []struct {
+var commandsRequiringArg = []struct {
 	args    []string
 	desc    string
 	tooMany []string
 }{
 	{
-		args:    []string{"skill", "install"},
-		desc:    "skill install",
-		tooMany: []string{"skill", "install", "first", "second"},
+		args:    []string{"install"},
+		desc:    "install",
+		tooMany: []string{"install", "first", "second"},
 	},
 	{
-		args:    []string{"skill", "uninstall"},
-		desc:    "skill uninstall",
-		tooMany: []string{"skill", "uninstall", "first", "second"},
+		args:    []string{"uninstall"},
+		desc:    "uninstall",
+		tooMany: []string{"uninstall", "first", "second"},
 	},
 }
 
-func TestSkillSubcommands_ErrorWithoutArg(t *testing.T) {
-	for _, tc := range skillSubcommandsRequiringArg {
+func TestCommands_ErrorWithoutArg(t *testing.T) {
+	for _, tc := range commandsRequiringArg {
 		root := NewRootCommand()
 		root.SetArgs(tc.args)
 		err := root.Execute()
@@ -61,8 +61,8 @@ func TestSkillSubcommands_ErrorWithoutArg(t *testing.T) {
 	}
 }
 
-func TestSkillSubcommands_ErrorWithTooManyArgs(t *testing.T) {
-	for _, tc := range skillSubcommandsRequiringArg {
+func TestCommands_ErrorWithTooManyArgs(t *testing.T) {
+	for _, tc := range commandsRequiringArg {
 		root := NewRootCommand()
 		root.SetArgs(tc.tooMany)
 		err := root.Execute()
@@ -72,12 +72,12 @@ func TestSkillSubcommands_ErrorWithTooManyArgs(t *testing.T) {
 	}
 }
 
-func TestSkillSubcommands_AcceptOneArg(t *testing.T) {
+func TestCommands_AcceptOneArg(t *testing.T) {
 	argsByCmd := map[string][]string{
-		"skill install":   {"skill", "install", "some-ref-or-name", "--target", "cursor"},
-		"skill uninstall": {"skill", "uninstall", "some-name", "--target", "cursor"},
+		"install":   {"install", "some-ref-or-name", "--target", "cursor"},
+		"uninstall": {"uninstall", "some-name", "--target", "cursor"},
 	}
-	for _, tc := range skillSubcommandsRequiringArg {
+	for _, tc := range commandsRequiringArg {
 		root := NewRootCommand()
 		out := &bytes.Buffer{}
 		root.SetOut(out)
@@ -89,13 +89,22 @@ func TestSkillSubcommands_AcceptOneArg(t *testing.T) {
 	}
 }
 
-func TestSkillList_HelpExitsZero(t *testing.T) {
+func TestList_HelpExitsZero(t *testing.T) {
 	root := NewRootCommand()
 	out := &bytes.Buffer{}
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "list", "--help"})
+	root.SetArgs([]string{"list", "--help"})
 	if err := root.Execute(); err != nil {
-		t.Errorf("striatum skill list --help: err = %v", err)
+		t.Errorf("striatum list --help: err = %v", err)
+	}
+}
+
+func TestSkillSubcommand_Removed(t *testing.T) {
+	root := NewRootCommand()
+	root.SetArgs([]string{"skill"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("striatum skill: expected error (removed), got nil")
 	}
 }
 

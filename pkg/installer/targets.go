@@ -2,27 +2,40 @@ package installer
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// Targets returns the absolute path of the artifact directory for the given target, project path, and kind.
-// target must be "cursor" or "claude". kind selects the subdirectory: "Prompt" uses "prompts",
-// everything else (including "" for backwards compatibility) uses "skills".
+var kindToSubdir = map[string]string{
+	"Skill":    "skills",
+	"Prompt":   "prompts",
+	"Workflow": "workflows",
+}
+
+// Targets returns the absolute path of the install directory for the given target, project path, and artifact kind.
+// target must be "cursor" or "claude". kind selects the subdirectory via kindToSubdir.
+// Workflow artifacts only support target "claude".
 // projectPath should already be absolute when provided; if relative, it is resolved via filepath.Abs.
 // When empty, the user's home directory is used.
 func Targets(target, projectPath, kind string) (string, error) {
+	base, ok := kindToSubdir[kind]
+	if !ok {
+		return "", fmt.Errorf("kind %q is not installable; installable kinds: Skill, Prompt, Workflow", kind)
+	}
+
 	switch target {
 	case "cursor", "claude":
 		// ok
 	default:
 		return "", errors.New("target must be cursor or claude")
 	}
-	subdir := "." + target
-	base := "skills"
-	if kind == "Prompt" {
-		base = "prompts"
+
+	if kind == "Workflow" && target != "claude" {
+		return "", fmt.Errorf("workflow artifacts only support --target claude")
 	}
+
+	subdir := "." + target
 	var baseDir string
 	if projectPath != "" {
 		if !filepath.IsAbs(projectPath) {

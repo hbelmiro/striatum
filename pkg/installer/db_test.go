@@ -25,7 +25,7 @@ func TestDB_LoadValidYAML(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	path := filepath.Join(dir, "installed.yaml")
 	content := `global:
-  - skill: foo
+  - name: foo
     version: "1.0.0"
     registry: localhost:5000/skills
     target: cursor
@@ -43,7 +43,7 @@ func TestDB_LoadValidYAML(t *testing.T) {
 		t.Fatalf("len(entries) = %d, want 1", len(entries))
 	}
 	e := entries[0]
-	if e.Skill != "foo" || e.Version != "1.0.0" || e.Target != "cursor" || e.InstalledWith != "" || e.Status != "ok" {
+	if e.Name != "foo" || e.Version != "1.0.0" || e.Target != "cursor" || e.InstalledWith != "" || e.Status != "ok" {
 		t.Errorf("entry = %+v", e)
 	}
 }
@@ -66,7 +66,8 @@ func TestDB_SaveRoundTrip(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	entries := []InstalledEntry{
 		{
-			Skill:         "a",
+			Name:          "a",
+			Kind:          "Skill",
 			Version:       "1.0.0",
 			Registry:      "reg",
 			Target:        "cursor",
@@ -87,7 +88,7 @@ func TestDB_SaveRoundTrip(t *testing.T) {
 	if len(loaded) != 1 {
 		t.Fatalf("len(loaded) = %d", len(loaded))
 	}
-	if loaded[0].Skill != entries[0].Skill || loaded[0].InstalledWith != entries[0].InstalledWith {
+	if loaded[0].Name != entries[0].Name || loaded[0].InstalledWith != entries[0].InstalledWith {
 		t.Errorf("round-trip: got %+v", loaded[0])
 	}
 }
@@ -112,7 +113,7 @@ func TestDB_LoadNewFormat_GlobalOnly(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	path := filepath.Join(dir, "installed.yaml")
 	content := `global:
-  - skill: go-review
+  - name: go-review
     version: 1.0.0
     registry: quay.io/skills
     target: cursor
@@ -130,8 +131,8 @@ func TestDB_LoadNewFormat_GlobalOnly(t *testing.T) {
 		t.Fatalf("len(entries) = %d, want 1", len(entries))
 	}
 	e := entries[0]
-	if e.Skill != "go-review" {
-		t.Errorf("Skill = %q, want go-review", e.Skill)
+	if e.Name != "go-review" {
+		t.Errorf("Name = %q, want go-review", e.Name)
 	}
 	if e.ProjectPath != "" {
 		t.Errorf("ProjectPath = %q, want empty (global)", e.ProjectPath)
@@ -144,7 +145,7 @@ func TestDB_LoadNewFormat_ProjectsOnly(t *testing.T) {
 	path := filepath.Join(dir, "installed.yaml")
 	content := `projects:
   /Users/dev/project-a:
-    - skill: go-review
+    - name: go-review
       version: 2.0.0
       registry: localhost:5050/skills
       target: cursor
@@ -163,8 +164,8 @@ func TestDB_LoadNewFormat_ProjectsOnly(t *testing.T) {
 		t.Fatalf("len(entries) = %d, want 1", len(entries))
 	}
 	e := entries[0]
-	if e.Skill != "go-review" {
-		t.Errorf("Skill = %q, want go-review", e.Skill)
+	if e.Name != "go-review" {
+		t.Errorf("Name = %q, want go-review", e.Name)
 	}
 	if e.ProjectPath != "/Users/dev/project-a" {
 		t.Errorf("ProjectPath = %q, want /Users/dev/project-a", e.ProjectPath)
@@ -176,7 +177,7 @@ func TestDB_LoadNewFormat_GlobalAndProjects(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	path := filepath.Join(dir, "installed.yaml")
 	content := `global:
-  - skill: go-review
+  - name: go-review
     version: 1.0.0
     registry: quay.io/skills
     target: cursor
@@ -184,7 +185,7 @@ func TestDB_LoadNewFormat_GlobalAndProjects(t *testing.T) {
     updated_at: "2026-01-01T00:00:00Z"
 projects:
   /Users/dev/project-a:
-    - skill: go-review
+    - name: go-review
       version: 2.0.0
       registry: localhost:5050/skills
       target: cursor
@@ -192,7 +193,7 @@ projects:
       status: ok
       updated_at: "2026-01-01T00:00:00Z"
   /Users/dev/project-b:
-    - skill: python-lint
+    - name: python-lint
       version: 1.0.0
       registry: quay.io/skills
       target: claude
@@ -217,7 +218,7 @@ projects:
 
 	for i := range entries {
 		e := &entries[i]
-		if e.ProjectPath == "" && e.Skill == "go-review" {
+		if e.ProjectPath == "" && e.Name == "go-review" {
 			globalEntry = e
 		} else if e.ProjectPath == "/Users/dev/project-a" {
 			projectAEntry = e
@@ -240,8 +241,8 @@ projects:
 
 	if projectBEntry == nil {
 		t.Error("project-b entry not found")
-	} else if projectBEntry.Skill != "python-lint" {
-		t.Errorf("project-b entry skill = %q, want python-lint", projectBEntry.Skill)
+	} else if projectBEntry.Name != "python-lint" {
+		t.Errorf("project-b entry skill = %q, want python-lint", projectBEntry.Name)
 	}
 }
 
@@ -250,7 +251,8 @@ func TestDB_SaveRoundTrip_NewFormat(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	entries := []InstalledEntry{
 		{
-			Skill:       "go-review",
+			Name:        "go-review",
+			Kind:        "Skill",
 			Version:     "1.0.0",
 			Registry:    "quay.io/skills",
 			Target:      "cursor",
@@ -259,7 +261,8 @@ func TestDB_SaveRoundTrip_NewFormat(t *testing.T) {
 			UpdatedAt:   "2026-01-01T00:00:00Z",
 		},
 		{
-			Skill:         "go-review",
+			Name:          "go-review",
+			Kind:          "Skill",
 			Version:       "2.0.0",
 			Registry:      "localhost:5050/skills",
 			Target:        "cursor",
@@ -317,7 +320,8 @@ func TestDB_SaveRoundTrip_GlobalOnly(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	entries := []InstalledEntry{
 		{
-			Skill:     "skill-a",
+			Name:      "skill-a",
+			Kind:      "Skill",
 			Version:   "1.0.0",
 			Registry:  "reg",
 			Target:    "cursor",
@@ -351,7 +355,8 @@ func TestDB_Save_ProjectPathNotInYAML(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", dir)
 	entries := []InstalledEntry{
 		{
-			Skill:       "skill-a",
+			Name:        "skill-a",
+			Kind:        "Skill",
 			Version:     "1.0.0",
 			Registry:    "reg",
 			Target:      "cursor",
@@ -380,6 +385,35 @@ func TestDB_Save_ProjectPathNotInYAML(t *testing.T) {
 	// Should have the project path as a map key
 	if !strings.Contains(yamlStr, "/Users/dev/project-a:") {
 		t.Error("YAML should contain project path as a map key under 'projects:'")
+	}
+}
+
+func TestDB_SaveRoundTrip_WithKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	entries := []InstalledEntry{
+		{
+			Name:      "thorough-review",
+			Kind:      "Workflow",
+			Version:   "1.0.0",
+			Registry:  "quay.io/workflows",
+			Target:    "claude",
+			Status:    "ok",
+			UpdatedAt: "2026-06-01T00:00:00Z",
+		},
+	}
+	if err := SaveInstalled(entries); err != nil {
+		t.Fatalf("SaveInstalled: %v", err)
+	}
+	loaded, err := LoadInstalled()
+	if err != nil {
+		t.Fatalf("LoadInstalled: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("len(loaded) = %d, want 1", len(loaded))
+	}
+	if loaded[0].Kind != "Workflow" {
+		t.Errorf("Kind = %q, want Workflow", loaded[0].Kind)
 	}
 }
 

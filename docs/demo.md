@@ -138,25 +138,25 @@ demo-out/
   example-prompt/       # OCI dependency (Prompt)
 ```
 
-## Step 5 — Install and uninstall a skill
+## Step 5 — Install and uninstall an artifact
 
-Install copies the pulled artifacts into the Cursor skills directory (`~/.cursor/skills`):
+Install copies the pulled artifacts into the target's directory (e.g. `~/.cursor/skills` for Cursor skills, `~/.claude/workflows/` for Claude workflows):
 
 ```bash
-./striatum skill install --target cursor localhost:5050/demo/example-skill:1.0.0
+./striatum install --target cursor localhost:5050/demo/example-skill:1.0.0
 ```
 
 To remove it:
 
 ```bash
-./striatum skill uninstall --target cursor example-skill
+./striatum uninstall --target cursor example-skill
 ```
 
-You can list cached and installed skills with:
+You can list cached and installed artifacts with:
 
 ```bash
-./striatum skill list
-./striatum skill list --installed --target cursor
+./striatum list
+./striatum list --installed --target cursor
 ```
 
 ## Step 6 — Git dependencies

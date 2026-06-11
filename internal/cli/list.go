@@ -11,27 +11,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSkillListCmd() *cobra.Command {
+func newListCmd() *cobra.Command {
 	var installed bool
 	var target string
 	var projectPath string
 	cmd := &cobra.Command{
 		Use:     "list",
-		Short:   "List skills in cache or installed",
-		Long:    "List skills in the local cache. Use --installed to list installed skills (optionally filter by --target or --project).",
-		Example: "  striatum skill list\n  striatum skill list --installed --target cursor\n  striatum skill list --installed --project .",
+		Short:   "List artifacts in cache or installed",
+		Long:    "List artifacts in the local cache. Use --installed to list installed artifacts (optionally filter by --target or --project).",
+		Example: "  striatum list\n  striatum list --installed --target claude\n  striatum list --installed --project .",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSkillList(cmd, installed, target, projectPath)
+			return runList(cmd, installed, target, projectPath)
 		},
 	}
-	cmd.Flags().BoolVar(&installed, "installed", false, "List installed skills instead of cache")
+	cmd.Flags().BoolVar(&installed, "installed", false, "List installed artifacts instead of cache")
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Filter installed list by target (cursor or claude); only with --installed")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Filter installed list by project path; only with --installed")
 	return cmd
 }
 
-func runSkillList(cmd *cobra.Command, installed bool, target string, projectPath string) error {
+func runList(cmd *cobra.Command, installed bool, target string, projectPath string) error {
 	if !installed && target != "" {
 		return fmt.Errorf("--target is only valid with --installed")
 	}
@@ -86,10 +86,10 @@ func runSkillList(cmd *cobra.Command, installed bool, target string, projectPath
 		}
 
 		if len(entries) == 0 {
-			_, _ = fmt.Fprintln(out, "No installed skills.")
+			_, _ = fmt.Fprintln(out, "No installed artifacts.")
 			return nil
 		}
-		writeAlignedTable(out, []string{"NAME", "VERSION", "TARGET", "SCOPE", "INSTALLED_WITH"}, func(w io.Writer) {
+		writeAlignedTable(out, []string{"NAME", "KIND", "VERSION", "TARGET", "SCOPE", "INSTALLED_WITH"}, func(w io.Writer) {
 			for _, e := range entries {
 				with := e.InstalledWith
 				if with == "" {
@@ -99,27 +99,31 @@ func runSkillList(cmd *cobra.Command, installed bool, target string, projectPath
 				if e.ProjectPath != "" {
 					scope = e.ProjectPath
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.Skill, e.Version, e.Target, scope, with)
+				kind := e.Kind
+				if kind == "" {
+					kind = "-"
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, kind, e.Version, e.Target, scope, with)
 			}
 		})
 		return nil
 	}
-	skills, err := installer.ListCachedSkills()
+	artifacts, err := installer.ListCachedArtifacts()
 	if err != nil {
 		return fmt.Errorf("list cache: %w", err)
 	}
-	if len(skills) == 0 {
-		_, _ = fmt.Fprintln(out, "No skills in cache.")
+	if len(artifacts) == 0 {
+		_, _ = fmt.Fprintln(out, "No artifacts in cache.")
 		return nil
 	}
-	writeAlignedTable(out, []string{"NAME", "VERSION", "DESCRIPTION"}, func(w io.Writer) {
-		for _, s := range skills {
-			desc := s.Description
+	writeAlignedTable(out, []string{"NAME", "VERSION", "KIND", "DESCRIPTION"}, func(w io.Writer) {
+		for _, a := range artifacts {
+			desc := a.Description
 			if desc == "" {
 				desc = "-"
 			}
 			desc = strings.ReplaceAll(desc, "\n", " ")
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, s.Version, desc)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.Name, a.Version, a.Kind, desc)
 		}
 	})
 	return nil

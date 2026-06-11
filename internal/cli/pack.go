@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
+	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/resolver"
 	"github.com/spf13/cobra"
 )
 
@@ -43,7 +46,11 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 			if err := os.MkdirAll(layoutPath, 0o755); err != nil {
 				return fmt.Errorf("create layout dir: %w", err)
 			}
-			if err := oci.Pack(cmd.Context(), m, projectRoot, layoutPath); err != nil {
+			depFiles, err := resolvePromptDeps(cmd.Context(), m, defaultPromptPuller)
+			if err != nil {
+				return err
+			}
+			if err := oci.Pack(cmd.Context(), m, projectRoot, layoutPath, depFiles...); err != nil {
 				return fmt.Errorf("pack artifact: %w", err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed artifact to %s\n", layoutPath)
@@ -53,4 +60,65 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
 	cmd.Flags().StringVarP(&outputFlag, "output", "o", "", "OCI layout output directory (default: <project>/build/; relative paths use the current working directory)")
 	return cmd
+}
+
+type promptDepPuller func(ctx context.Context, r resolver.ResolvedArtifact) error
+
+func defaultPromptPuller(ctx context.Context, r resolver.ResolvedArtifact) error {
+	cacheDir := installer.CacheDir(resolvedKind(r), r.Name, r.Version)
+	parentDir := filepath.Dir(cacheDir)
+	created, cleanup, err := pullToStagingDir(parentDir, r.Name, func(stagingDir string) error {
+		return pullDependency(ctx, r.Dependency, stagingDir)
+	})
+	if err != nil {
+		cleanup()
+		return err
+	}
+	defer cleanup()
+	return atomicReplaceCacheDir(created, cacheDir)
+}
+
+func resolvePromptDeps(ctx context.Context, m *artifact.Manifest, pull promptDepPuller) ([]oci.DepFile, error) {
+	if m.Kind != "Workflow" || len(m.Dependencies) == 0 {
+		return nil, nil
+	}
+	fetcher := NewCacheFirstFetcher(NewRemoteFetcher())
+	resolved, err := resolver.Resolve(ctx, m, fetcher)
+	if err != nil {
+		return nil, fmt.Errorf("resolve dependencies: %w", err)
+	}
+	if err := validateResolvedPaths(resolved); err != nil {
+		return nil, err
+	}
+	var depFiles []oci.DepFile
+	for _, r := range resolved[1:] {
+		if r.Manifest == nil || r.Manifest.Kind != "Prompt" {
+			continue
+		}
+		cacheDir := installer.CacheDir(r.Manifest.Kind, r.Name, r.Version)
+		for _, f := range r.Manifest.Spec.Files {
+			if f == "" || strings.Contains(f, "..") || filepath.IsAbs(f) {
+				return nil, fmt.Errorf("prompt dependency %q: invalid file path %q", r.Name, f)
+			}
+		}
+		needsPull := false
+		for _, f := range r.Manifest.Spec.Files {
+			if _, err := os.Stat(filepath.Join(cacheDir, filepath.FromSlash(f))); err != nil {
+				needsPull = true
+				break
+			}
+		}
+		if needsPull {
+			if err := pull(ctx, r); err != nil {
+				return nil, fmt.Errorf("pull prompt dependency %q: %w", r.Name, err)
+			}
+		}
+		for _, f := range r.Manifest.Spec.Files {
+			depFiles = append(depFiles, oci.DepFile{
+				AnnotationPath: fmt.Sprintf("deps/%s/%s", r.Name, f),
+				DiskPath:       filepath.Join(cacheDir, filepath.FromSlash(f)),
+			})
+		}
+	}
+	return depFiles, nil
 }

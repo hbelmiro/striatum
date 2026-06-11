@@ -25,13 +25,24 @@ func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 const supportedAPIVersion = "striatum.dev/v1alpha2"
 
 var supportedKinds = map[string]bool{
-	"Prompt": true,
-	"Skill":  true,
+	"Prompt":   true,
+	"Skill":    true,
+	"Workflow": true,
 }
 
 // IsSupportedKind reports whether kind is a recognized artifact kind.
 func IsSupportedKind(kind string) bool {
 	return supportedKinds[kind]
+}
+
+// SupportedKinds returns a sorted slice of all supported artifact kinds.
+func SupportedKinds() []string {
+	kinds := make([]string, 0, len(supportedKinds))
+	for k := range supportedKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // SupportedKindsList returns a comma-separated list of supported artifact kinds (e.g. "Skill").

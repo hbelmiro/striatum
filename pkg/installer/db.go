@@ -12,8 +12,8 @@ const installedFileName = "installed.yaml"
 
 // InstalledEntry is one row in the install tracking database.
 type InstalledEntry struct {
-	Skill         string `yaml:"skill"`
-	Kind          string `yaml:"kind,omitempty"` // "Skill" or "Prompt"; empty defaults to "Skill" for backwards compat
+	Name          string `yaml:"name"`
+	Kind          string `yaml:"kind"` // "Skill", "Prompt", or "Workflow"
 	Version       string `yaml:"version"`
 	Registry      string `yaml:"registry"`
 	Target        string `yaml:"target"`
@@ -22,14 +22,6 @@ type InstalledEntry struct {
 	Status        string `yaml:"status"`
 	LastError     string `yaml:"last_error,omitempty"`
 	UpdatedAt     string `yaml:"updated_at"`
-}
-
-// EffectiveKind returns the Kind, defaulting to "Skill" when empty (backwards compat).
-func (e InstalledEntry) EffectiveKind() string {
-	if e.Kind == "" {
-		return "Skill"
-	}
-	return e.Kind
 }
 
 // installedFile is the on-disk format with explicit scope sections.

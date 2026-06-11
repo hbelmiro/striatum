@@ -44,7 +44,7 @@ func TestValidateTarget(t *testing.T) {
 
 func TestInstall_ShortTargetFlag(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "install", "-t", "invalid", "localhost:5000/skills/foo:1.0.0"})
+	root.SetArgs([]string{"install", "-t", "invalid", "localhost:5000/skills/foo:1.0.0"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("install -t invalid: expected error")
@@ -59,7 +59,7 @@ func TestUninstall_ShortTargetFlag(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "-t", "invalid", "foo"})
+	root.SetArgs([]string{"uninstall", "-t", "invalid", "foo"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall -t invalid: expected error")
@@ -69,15 +69,15 @@ func TestUninstall_ShortTargetFlag(t *testing.T) {
 	}
 }
 
-func TestSkillList_ShortTargetFlag(t *testing.T) {
+func TestList_ShortTargetFlag(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "list", "--installed", "-t", "invalid"})
+	root.SetArgs([]string{"list", "--installed", "-t", "invalid"})
 	err := root.Execute()
 	if err == nil {
-		t.Error("skill list -t invalid: expected error")
+		t.Error("list -t invalid: expected error")
 	}
 	if err != nil && !strings.Contains(err.Error(), "must be cursor or claude") {
 		t.Errorf("error should mention valid targets: %v", err)

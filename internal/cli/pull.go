@@ -25,7 +25,7 @@ Reference can be a registry (host/repo/name:tag) or oci:/path:tag.
 Git dependencies declared in artifact.json are resolved automatically during pull.
 Each artifact is placed in a subdirectory named after the artifact (<output>/<name>/).
 
-By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or ~/.striatum/cache), the same layout used by "skill install", so "skill list" can show pulled skills. Use --no-cache to write only to the output directory.`,
+By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or ~/.striatum/cache), the same layout used by "install", so "list" can show pulled artifacts. Use --no-cache to write only to the output directory.`,
 		Example: "  striatum pull localhost:5000/skills/my-skill:1.0.0\n  striatum pull -o ./out oci:./build:my-skill:1.0.0",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -102,7 +102,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				return err
 			}
 			for _, r := range resolved {
-				cacheDir := installer.CacheDir(r.Name, r.Version)
+				cacheDir := installer.CacheDir(resolvedKind(r), r.Name, r.Version)
 				if err := installer.InstallToTarget(cacheDir, outputDir, r.Name); err != nil {
 					return fmt.Errorf("copy %s to output: %w", r.Name, err)
 				}

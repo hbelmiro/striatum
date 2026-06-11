@@ -14,7 +14,7 @@ func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "striatum",
 		Short: "OCI-native CLI for packaging and distributing AI artifacts",
-		Long:  "Striatum packages, versions, and distributes AI artifacts (skills, prompts, RAG configs) using OCI-compliant registries.",
+		Long:  "Striatum packages, versions, and distributes AI artifacts (skills, prompts, workflows) using OCI-compliant registries.",
 	}
 	cmd.Version = version
 	cmd.SetVersionTemplate("striatum version {{.Version}}\n")
@@ -25,7 +25,9 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newPushCmd())
 	cmd.AddCommand(newPullCmd())
 	cmd.AddCommand(newInspectCmd())
-	cmd.AddCommand(newSkillCmd())
+	cmd.AddCommand(newInstallCmd())
+	cmd.AddCommand(newUninstallCmd())
+	cmd.AddCommand(newListCmd())
 	return cmd
 }
 

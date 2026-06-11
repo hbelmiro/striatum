@@ -13,7 +13,7 @@ import (
 
 func TestUninstall_MissingTargetErrors(t *testing.T) {
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "foo"})
+	root.SetArgs([]string{"uninstall", "foo"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall without --target: expected error")
@@ -48,7 +48,7 @@ func TestUninstall_InvalidTarget_Errors(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "all", "foo"})
+	root.SetArgs([]string{"uninstall", "--target", "all", "foo"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall --target all: expected error")
@@ -63,7 +63,7 @@ func TestUninstall_UnknownNameErrors(t *testing.T) {
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "nonexistent"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "nonexistent"})
 	err := root.Execute()
 	if err == nil {
 		t.Error("uninstall unknown name: expected error")
@@ -79,14 +79,14 @@ func TestUninstall_DependencyName_ErrorListsRoots(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "my-dep"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "my-dep"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("uninstall dependency: expected error")
@@ -105,15 +105,15 @@ func TestUninstall_DependencyName_DeduplicatesRoots(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "my-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "my-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "my-dep"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "my-dep"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("uninstall dependency: expected error")
@@ -144,8 +144,8 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirB := installer.CacheDir("skill-b", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirB := installer.CacheDir("Skill", "skill-b", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -168,8 +168,8 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "skill-b", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-b", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestUninstall_RemovesSkillAndOrphans(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestUninstall_AcceptsNameVersionRef(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "example-skill", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("example-skill", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "example-skill", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -223,13 +223,13 @@ func TestUninstall_AcceptsNameVersionRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "example-skill", Version: "1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "example-skill", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "example-skill:1.0.0"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "example-skill:1.0.0"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall with name:version ref: %v", err)
 	}
@@ -269,9 +269,9 @@ func TestUninstall_PreservesNonOrphanDeps(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirB := installer.CacheDir("skill-b", "1.0.0")
-	cacheDirC := installer.CacheDir("skill-c", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirB := installer.CacheDir("Skill", "skill-b", "1.0.0")
+	cacheDirC := installer.CacheDir("Skill", "skill-c", "1.0.0")
 	for _, d := range []string{cacheDirA, cacheDirB, cacheDirC} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -295,9 +295,9 @@ func TestUninstall_PreservesNonOrphanDeps(t *testing.T) {
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "skill-b", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "skill-c", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-b", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-b", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-c", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-b", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestUninstall_PreservesNonOrphanDeps(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		}
-		d := installer.CacheDir(name, "1.0.0")
+		d := installer.CacheDir("Skill", name, "1.0.0")
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -355,15 +355,15 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"root-a", "root-b", "shared-dep"} {
-		if err := installer.InstallToTarget(installer.CacheDir(name, "1.0.0"), targetDir, name); err != nil {
+		if err := installer.InstallToTarget(installer.CacheDir("Skill", name, "1.0.0"), targetDir, name); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-a", Version: "1.0.0", Registry: "reg/root-a:1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "root-b", Version: "1.0.0", Registry: "reg/root-b:1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "shared-dep", Version: "1.0.0", Registry: "reg/shared-dep:1.0.0", Target: "cursor", InstalledWith: "root-a root-b", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg/root-a:1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-b", Kind: "Skill", Version: "1.0.0", Registry: "reg/root-b:1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-dep", Kind: "Skill", Version: "1.0.0", Registry: "reg/shared-dep:1.0.0", Target: "cursor", InstalledWith: "root-a root-b", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "root-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestUninstall_SharedDepNotOrphanedWhenOneRootRemains(t *testing.T) {
 		t.Fatalf("DB should have 2 entries (root-b + shared-dep), got %d", len(entries))
 	}
 	for _, e := range entries {
-		if e.Skill == "root-a" {
+		if e.Name == "root-a" {
 			t.Error("root-a should not be in DB")
 		}
 	}
@@ -411,7 +411,7 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "root-x", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDirA := installer.CacheDir("root-x", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "root-x", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -429,8 +429,8 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-x", Version: "1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "orphan-dep", Version: "1.0.0", Target: "cursor", InstalledWith: "root-x", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-x", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "orphan-dep", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: "root-x", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 	stderr := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetErr(stderr)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-x"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "root-x"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -458,8 +458,8 @@ func TestUninstall_OrphanRemoveWarning_StillSaves(t *testing.T) {
 
 func TestComputeOrphans_MultiRoot(t *testing.T) {
 	entries := []installer.InstalledEntry{
-		{Skill: "root-b", Version: "1.0.0", Target: "cursor", InstalledWith: ""},
-		{Skill: "dep", Version: "1.0.0", Target: "cursor", InstalledWith: "root-a root-b"},
+		{Name: "root-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: ""},
+		{Name: "dep", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: "root-a root-b"},
 	}
 	orphans := computeOrphans(entries)
 	if len(orphans) != 0 {
@@ -467,7 +467,7 @@ func TestComputeOrphans_MultiRoot(t *testing.T) {
 	}
 
 	entriesAllGone := []installer.InstalledEntry{
-		{Skill: "dep", Version: "1.0.0", Target: "cursor", InstalledWith: "root-a root-b"},
+		{Name: "dep", Kind: "Skill", Version: "1.0.0", Target: "cursor", InstalledWith: "root-a root-b"},
 	}
 	orphans2 := computeOrphans(entriesAllGone)
 	if len(orphans2) != 1 {
@@ -503,7 +503,7 @@ func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "skill-a", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -535,15 +535,15 @@ func TestUninstall_GlobalScope_LeavesProjectScoped(t *testing.T) {
 
 	// Save DB with both entries
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Uninstall globally (no --project flag)
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall global: %v", err)
 	}
@@ -585,7 +585,7 @@ func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
 		Metadata:   artifact.Metadata{Name: "skill-a", Version: "1.0.0"},
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
-	cacheDir := installer.CacheDir("skill-a", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "skill-a", "1.0.0")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -617,15 +617,15 @@ func TestUninstall_ProjectScope_LeavesGlobal(t *testing.T) {
 
 	// Save DB with both entries
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "skill-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Uninstall from project scope
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "--project", projectDir, "skill-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "--project", projectDir, "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall project: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 			Metadata:   artifact.Metadata{Name: name, Version: "1.0.0"},
 			Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 		}
-		cacheDir := installer.CacheDir(name, "1.0.0")
+		cacheDir := installer.CacheDir("Skill", name, "1.0.0")
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -684,7 +684,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"root-a", "dep-x"} {
-		cacheDir := installer.CacheDir(name, "1.0.0")
+		cacheDir := installer.CacheDir("Skill", name, "1.0.0")
 		if err := installer.InstallToTarget(cacheDir, globalTargetDir, name); err != nil {
 			t.Fatal(err)
 		}
@@ -698,23 +698,23 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	if err := os.MkdirAll(projectTargetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cacheDir := installer.CacheDir("root-b", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "root-b", "1.0.0")
 	if err := installer.InstallToTarget(cacheDir, projectTargetDir, "root-b"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Save DB: global (root-a + dep-x), project (root-b)
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-a", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "dep-x", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "root-b", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "dep-x", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: "", InstalledWith: "root-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-b", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", ProjectPath: projectDir, InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Uninstall root-a from global scope
 	root := NewRootCommand()
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "root-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall root-a: %v", err)
 	}
@@ -740,7 +740,7 @@ func TestUninstall_OrphanCleanup_RespectsScope(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("DB should have 1 entry (root-b), got %d", len(entries))
 	}
-	if entries[0].Skill != "root-b" || entries[0].ProjectPath != projectDir {
+	if entries[0].Name != "root-b" || entries[0].ProjectPath != projectDir {
 		t.Errorf("remaining entry = %+v, want root-b in project scope", entries[0])
 	}
 }
@@ -763,8 +763,8 @@ func TestUninstall_RemovesPromptOrphansFromPromptsDir(t *testing.T) {
 		Spec:       artifact.Spec{Entrypoint: "prompt.md", Files: []string{"prompt.md"}},
 	}
 
-	cacheDirA := installer.CacheDir("skill-a", "1.0.0")
-	cacheDirPrompt := installer.CacheDir("prompt-dep", "1.0.0")
+	cacheDirA := installer.CacheDir("Skill", "skill-a", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("Prompt", "prompt-dep", "1.0.0")
 	if err := os.MkdirAll(cacheDirA, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -796,8 +796,8 @@ func TestUninstall_RemovesPromptOrphansFromPromptsDir(t *testing.T) {
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "prompt-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "skill-a", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "prompt-dep", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "skill-a", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +805,7 @@ func TestUninstall_RemovesPromptOrphansFromPromptsDir(t *testing.T) {
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "skill-a"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "skill-a"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -829,9 +829,9 @@ func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) 
 	t.Setenv("STRIATUM_HOME", home)
 	t.Setenv("HOME", home)
 
-	cacheDirSkill := installer.CacheDir("shared-name", "1.0.0")
-	cacheDirPrompt := installer.CacheDir("shared-name", "2.0.0")
-	cacheDirRoot := installer.CacheDir("root-skill", "1.0.0")
+	cacheDirSkill := installer.CacheDir("Skill", "shared-name", "1.0.0")
+	cacheDirPrompt := installer.CacheDir("Prompt", "shared-name", "2.0.0")
+	cacheDirRoot := installer.CacheDir("Skill", "root-skill", "1.0.0")
 	for _, d := range []string{cacheDirSkill, cacheDirPrompt, cacheDirRoot} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -872,9 +872,9 @@ func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) 
 	}
 
 	if err := installer.SaveInstalled([]installer.InstalledEntry{
-		{Skill: "root-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
-		{Skill: "shared-name", Kind: "Prompt", Version: "2.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "root-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Prompt", Version: "2.0.0", Registry: "reg", Target: "cursor", InstalledWith: "root-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -882,7 +882,7 @@ func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) 
 	out := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
-	root.SetArgs([]string{"skill", "uninstall", "--target", "cursor", "root-skill"})
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "root-skill"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -907,7 +907,7 @@ func TestUninstall_CrossKindSameNameOrphan_DoesNotRemoveOtherKind(t *testing.T) 
 	if len(entries) != 1 {
 		t.Fatalf("DB should have 1 entry (Skill shared-name), got %d", len(entries))
 	}
-	if entries[0].Skill != "shared-name" || entries[0].EffectiveKind() != "Skill" {
+	if entries[0].Name != "shared-name" || entries[0].Kind != "Skill" {
 		t.Errorf("remaining entry = %+v, want Skill shared-name", entries[0])
 	}
 }
@@ -917,9 +917,9 @@ func TestComputeOrphans_CrossScope_NoFalseOrphan(t *testing.T) {
 
 	// After removing root-a from global scope
 	remainingAfterRemoveRootA := []installer.InstalledEntry{
-		{Skill: "dep-x", Version: "1.0.0", Target: "cursor", ProjectPath: "", InstalledWith: "root-a"},
-		{Skill: "root-b", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: ""},
-		{Skill: "dep-x", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: "root-b"},
+		{Name: "dep-x", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: "", InstalledWith: "root-a"},
+		{Name: "root-b", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: ""},
+		{Name: "dep-x", Kind: "Skill", Version: "1.0.0", Target: "cursor", ProjectPath: projectDir, InstalledWith: "root-b"},
 	}
 
 	orphans := computeOrphans(remainingAfterRemoveRootA)
@@ -930,7 +930,173 @@ func TestComputeOrphans_CrossScope_NoFalseOrphan(t *testing.T) {
 		t.Fatalf("len(orphans) = %d, want 1 (global dep-x only)", len(orphans))
 	}
 
-	if orphans[0].Skill != "dep-x" || orphans[0].ProjectPath != "" {
+	if orphans[0].Name != "dep-x" || orphans[0].ProjectPath != "" {
 		t.Errorf("orphan = %+v, want global dep-x", orphans[0])
+	}
+}
+
+func TestUninstall_AmbiguousKind_ErrorsWithRecommendation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "shared-name"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall with ambiguous kind: expected error")
+	}
+	if !strings.Contains(err.Error(), "--kind") {
+		t.Errorf("error should recommend --kind flag, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Skill") || !strings.Contains(err.Error(), "Prompt") {
+		t.Errorf("error should list the conflicting kinds, got: %v", err)
+	}
+}
+
+func TestUninstall_KindFlag_Disambiguates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	for _, kind := range []string{"Skill", "Prompt"} {
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       kind,
+			Metadata:   artifact.Metadata{Name: "shared-name", Version: "1.0.0"},
+			Spec:       artifact.Spec{Entrypoint: "file.md", Files: []string{"file.md"}},
+		}
+		cacheDir := installer.CacheDir(kind, "shared-name", "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeArtifact(t, cacheDir, m)
+		targetDir, err := installer.Targets("cursor", "", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := installer.InstallToTarget(cacheDir, targetDir, "shared-name"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "shared-name", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "shared-name", Kind: "Prompt", Version: "1.0.0", Registry: "reg", Target: "cursor", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "--kind", "Skill", "shared-name"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall with --kind Skill: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("DB should have 1 entry (Prompt), got %d", len(entries))
+	}
+	if entries[0].Kind != "Prompt" {
+		t.Errorf("remaining entry kind = %q, want Prompt", entries[0].Kind)
+	}
+}
+
+func TestUninstall_InvalidKind_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "cursor", "--kind", "Foo", "some-artifact"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall --kind Foo: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported kind") {
+		t.Errorf("error should mention 'unsupported kind', got: %v", err)
+	}
+}
+
+func TestUninstall_Workflow_RemovesFromWorkflowsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+	}
+	cacheDir := installer.CacheDir("Workflow", "thorough-review", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "review.js"), []byte("// workflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	workflowsDir, err := installer.Targets("claude", "", "Workflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, workflowsDir, "thorough-review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "thorough-review", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify installed
+	if _, err := os.Stat(filepath.Join(workflowsDir, "thorough-review", "review.js")); err != nil {
+		t.Fatalf("workflow not installed: %v", err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"uninstall", "--target", "claude", "thorough-review"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall workflow: %v", err)
+	}
+
+	// Verify removed from workflows/ dir
+	if _, err := os.Stat(filepath.Join(workflowsDir, "thorough-review")); !os.IsNotExist(err) {
+		t.Error("thorough-review dir should be removed from workflows/")
+	}
+
+	// Verify DB empty
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty after uninstall, got %d entries", len(entries))
 	}
 }

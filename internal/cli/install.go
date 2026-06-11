@@ -24,9 +24,9 @@ func newInstallCmd() *cobra.Command {
 	var force, reinstallAll bool
 	cmd := &cobra.Command{
 		Use:     "install",
-		Short:   "Pull and install a skill into AI coding agent skills directories",
-		Long:    "Resolves the skill artifact and dependencies, copies them to the install target (Cursor or Claude skills dir). Requires --target (cursor or claude). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
-		Example: "  striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0\n  striatum skill install --target cursor oci:/path/to/layout:my-skill:1.0.0\n  striatum skill install --target cursor .",
+		Short:   "Pull and install an artifact into the appropriate target directory",
+		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor or claude). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
+		Example: "  striatum install --target claude localhost:5000/artifacts/my-skill:1.0.0\n  striatum install --target claude oci:/path/to/layout:my-skill:1.0.0\n  striatum install --target claude .",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
@@ -61,7 +61,7 @@ func runReinstallAll(cmd *cobra.Command) error {
 	}
 	for i := range entries {
 		e := &entries[i]
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.EffectiveKind())
+		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
 		if err != nil {
 			e.Status = "error"
 			e.LastError = err.Error()
@@ -70,21 +70,21 @@ func runReinstallAll(cmd *cobra.Command) error {
 			}
 			return err
 		}
-		cacheDir := installer.CacheDir(e.Skill, e.Version)
+		cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
 		if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
 			if !os.IsNotExist(statErr) {
-				return fmt.Errorf("check cache for %s@%s: %w", e.Skill, e.Version, statErr)
+				return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
 			}
 			if strings.TrimSpace(e.Registry) == "" {
 				e.Status = "error"
 				e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
 				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-					return fmt.Errorf("%s@%s: %s (also failed to persist state: %v)", e.Skill, e.Version, e.LastError, saveErr)
+					return fmt.Errorf("%s@%s: %s (also failed to persist state: %v)", e.Name, e.Version, e.LastError, saveErr)
 				}
-				return fmt.Errorf("%s@%s: %s", e.Skill, e.Version, e.LastError)
+				return fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError)
 			}
-			if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Skill); err != nil {
+			if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
 				e.Status = "error"
 				e.LastError = err.Error()
 				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -94,7 +94,7 @@ func runReinstallAll(cmd *cobra.Command) error {
 				return err
 			}
 		}
-		if err := installer.InstallToTarget(cacheDir, targetDir, e.Skill); err != nil {
+		if err := installer.InstallToTarget(cacheDir, targetDir, e.Name); err != nil {
 			e.Status = "error"
 			e.LastError = err.Error()
 			e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -248,7 +248,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("unsafe artifact name or version %q / %q", name, version)
 			}
-			cacheDir := installer.CacheDir(name, version)
+			cacheDir := installer.CacheDir(rootManifest.Kind, name, version)
 			if err := atomicReplaceCacheDir(pulledDir, cacheDir); err != nil {
 				_ = os.RemoveAll(stagingDir)
 				return fmt.Errorf("cache git artifact: %w", err)
@@ -278,8 +278,11 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		}
 	}
 
-	if rootManifest.Kind == "Prompt" {
-		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
+	if err := artifact.Validate(rootManifest); err != nil {
+		return fmt.Errorf("invalid manifest: %w", err)
+	}
+	if err := validateInstallableKind(rootManifest.Kind, target); err != nil {
+		return err
 	}
 
 	var resolved []resolver.ResolvedArtifact
@@ -329,8 +332,8 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 	if err := artifact.ValidateLocal(rootManifest, absPath); err != nil {
 		return fmt.Errorf("validate local files: %w", err)
 	}
-	if rootManifest.Kind == "Prompt" {
-		return fmt.Errorf("prompt artifacts cannot be installed; they are consumed as dependencies")
+	if err := validateInstallableKind(rootManifest.Kind, target); err != nil {
+		return err
 	}
 
 	name := rootManifest.Metadata.Name
@@ -356,7 +359,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		return err
 	}
 
-	cacheDir := installer.CacheDir(name, version)
+	cacheDir := installer.CacheDir(rootManifest.Kind, name, version)
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("clean cache dir: %w", err)
 	}
@@ -365,14 +368,14 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 	}
 	if err := copyLocalToCache(absPath, cacheDir, rootManifest.Spec.Files); err != nil {
 		_ = os.RemoveAll(cacheDir)
-		return fmt.Errorf("cache local skill: %w", err)
+		return fmt.Errorf("cache local artifact: %w", err)
 	}
 
 	if len(resolved) > 1 {
 		cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 		for _, r := range resolved[1:] {
 			res := r
-			depCacheDir := installer.CacheDir(res.Name, res.Version)
+			depCacheDir := installer.CacheDir(resolvedKind(res), res.Name, res.Version)
 			pullFn := func(ctx context.Context, _ string) error {
 				created, cleanup, err := pullToStagingDir(cacheRoot, res.Name, func(stagingDir string) error {
 					return pullDependency(ctx, res.Dependency, stagingDir)
@@ -425,7 +428,7 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 		return fmt.Errorf("resolve artifact.json: %w", err)
 	}
 	if realManifest != realSrcDir && !strings.HasPrefix(realManifest, srcPrefix) {
-		return fmt.Errorf("artifact.json resolves outside skill directory via symlink")
+		return fmt.Errorf("artifact.json resolves outside artifact directory via symlink")
 	}
 	data, err := os.ReadFile(manifestSrc)
 	if err != nil {
@@ -446,7 +449,7 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 			return fmt.Errorf("resolve %s: %w", f, err)
 		}
 		if realSrc != realSrcDir && !strings.HasPrefix(realSrc, srcPrefix) {
-			return fmt.Errorf("file %q resolves outside skill directory via symlink", f)
+			return fmt.Errorf("file %q resolves outside artifact directory via symlink", f)
 		}
 
 		dst := filepath.Join(cacheDir, filepath.FromSlash(f))
@@ -503,7 +506,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		if err != nil {
 			return fmt.Errorf("resolve target dir for %s: %w", r.Name, err)
 		}
-		cd := installer.CacheDir(r.Name, r.Version)
+		cd := installer.CacheDir(kind, r.Name, r.Version)
 		if err := installer.InstallToTarget(cd, td, r.Name); err != nil {
 			return fmt.Errorf("install %s to target: %w", r.Name, err)
 		}
@@ -514,7 +517,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	byKey := make(map[string]*installer.InstalledEntry)
 	for i := range existing {
 		e := &existing[i]
-		key := e.EffectiveKind() + "|" + e.Skill + "|" + e.Target + "|" + e.ProjectPath
+		key := e.Kind + "|" + e.Name + "|" + e.Target + "|" + e.ProjectPath
 		byKey[key] = e
 	}
 	for _, r := range resolved {
@@ -532,7 +535,7 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 			installedWith = mergeInstalledWith(prev.InstalledWith, installedWith)
 		}
 		byKey[key] = &installer.InstalledEntry{
-			Skill:         r.Name,
+			Name:          r.Name,
 			Kind:          kind,
 			Version:       r.Version,
 			Registry:      reg,
@@ -549,11 +552,11 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	}
 	sort.Slice(newEntries, func(i, j int) bool {
 		a, b := newEntries[i], newEntries[j]
-		if a.Skill != b.Skill {
-			return a.Skill < b.Skill
+		if a.Name != b.Name {
+			return a.Name < b.Name
 		}
-		if a.EffectiveKind() != b.EffectiveKind() {
-			return a.EffectiveKind() < b.EffectiveKind()
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
 		if a.Target != b.Target {
 			return a.Target < b.Target
@@ -568,10 +571,10 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 }
 
 func resolvedKind(r resolver.ResolvedArtifact) string {
-	if r.Manifest != nil && r.Manifest.Kind != "" {
+	if r.Manifest != nil {
 		return r.Manifest.Kind
 	}
-	return "Skill"
+	return ""
 }
 
 // mergeInstalledWith adds rootName to the space-separated list in existing,
@@ -586,6 +589,13 @@ func mergeInstalledWith(existing, rootName string) string {
 		}
 	}
 	return existing + " " + rootName
+}
+
+func validateInstallableKind(kind, target string) error {
+	if kind == "Workflow" && target != "claude" {
+		return fmt.Errorf("workflow artifacts only support --target claude")
+	}
+	return nil
 }
 
 // sourceRefForDB returns the canonical reference string to persist in installed.yaml.
@@ -631,7 +641,7 @@ func buildRequired(entries []installer.InstalledEntry, projectPath, target strin
 		if e.Target != target {
 			continue
 		}
-		required[e.EffectiveKind()+"|"+e.Skill] = e.Version
+		required[e.Kind+"|"+e.Name] = e.Version
 	}
 	return required
 }
@@ -643,7 +653,7 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	for i, r := range resolved {
 		idx, res := i, r
-		cacheDir := installer.CacheDir(res.Name, res.Version)
+		cacheDir := installer.CacheDir(resolvedKind(res), res.Name, res.Version)
 
 		// Construct DigestFunc based on artifact type
 		var digestFn installer.DigestFunc
@@ -783,6 +793,9 @@ func pullToStagingDir(parentDir, artifactName string, pullFn func(stagingDir str
 func atomicReplaceCacheDir(created, cacheDir string) error {
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("remove existing cache dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cacheDir), 0o755); err != nil {
+		return fmt.Errorf("create cache parent dir: %w", err)
 	}
 	if err := os.Rename(created, cacheDir); err != nil {
 		if rmErr := os.RemoveAll(created); rmErr != nil {

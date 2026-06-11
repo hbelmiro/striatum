@@ -52,7 +52,7 @@ func TestPull_FromOCILayoutSucceeds(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "cli-pull", "artifact.json")); err != nil {
 		t.Errorf("pulled artifact.json missing: %v", err)
 	}
-	cacheArtifact := filepath.Join(installer.CacheDir("cli-pull", "1.0.0"), "artifact.json")
+	cacheArtifact := filepath.Join(installer.CacheDir("Skill", "cli-pull", "1.0.0"), "artifact.json")
 	if _, err := os.Stat(cacheArtifact); err != nil {
 		t.Errorf("expected default pull to populate Striatum cache at %s: %v", cacheArtifact, err)
 	}
@@ -262,7 +262,7 @@ func TestPull_CachedPath_StaleFilesNotInFinalCache(t *testing.T) {
 		t.Fatalf("pull: %v", err)
 	}
 
-	cacheDir := installer.CacheDir("stale-cached", "1.0.0")
+	cacheDir := installer.CacheDir("Skill", "stale-cached", "1.0.0")
 	if _, err := os.Stat(filepath.Join(cacheDir, "artifact.json")); err != nil {
 		t.Errorf("artifact.json should exist in final cache: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestPull_NoCache_OutputOnly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "no-cache-pull", "artifact.json")); err != nil {
 		t.Fatalf("output artifact.json missing: %v", err)
 	}
-	cacheArtifact := filepath.Join(installer.CacheDir("no-cache-pull", "1.0.0"), "artifact.json")
+	cacheArtifact := filepath.Join(installer.CacheDir("Skill", "no-cache-pull", "1.0.0"), "artifact.json")
 	if _, err := os.Stat(cacheArtifact); !os.IsNotExist(err) {
 		if err == nil {
 			t.Fatalf("expected no cache entry at %s with --no-cache", cacheArtifact)

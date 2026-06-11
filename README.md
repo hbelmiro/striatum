@@ -1,6 +1,6 @@
 # Striatum
 
-OCI-native CLI and library for packaging, versioning, and distributing AI artifacts (skills, prompts, RAG configs) using standard OCI-compliant registries.
+OCI-native CLI and library for packaging, versioning, and distributing AI artifacts (skills, prompts, workflows) using standard OCI-compliant registries.
 
 ## Install
 
@@ -45,21 +45,22 @@ For `validate`, `pack`, and `push`, use `-f` / `--manifest` with a path to `arti
 
 The flag treats a path as a manifest **file** only when its final component is named `artifact.json` (case-insensitive, e.g. `Artifact.json` on disk). Any other final component is treated as a **project directory** and `artifact.json` is appended—even if that name is missing—so typos get errors pointing at the expected manifest path.
 
-- `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind` (Skill, Prompt), `--entrypoint`)
+- `striatum init` — scaffold an `artifact.json` (requires `--name`, `--kind` (Skill, Prompt, Workflow), `--entrypoint`)
 - `striatum validate` — validate local artifact and optionally check dependencies
-- `striatum pack` — bundle artifact into a local OCI Image Layout at `<project>/build/` by default (the manifest’s project directory, not necessarily the shell’s cwd—see `-f` / `--manifest`); optional `-o` / `--output` sets another layout directory (paths relative to the shell’s cwd, like `pull --output`)
+- `striatum pack` — bundle artifact into a local OCI Image Layout at `<project>/build/` by default; optional `-o` / `--output` sets another layout directory. For Workflow artifacts with Prompt dependencies, pack resolves and inlines the prompt files as extra OCI layers under `deps/<prompt-name>/`; missing prompt dependencies are fetched automatically.
 - `striatum push <reference>` — push to an OCI registry
-- `striatum pull <reference>` — download artifact and dependencies to the output directory (default: current working directory; each artifact in `<output>/<name>/`) and, by default, into the Striatum cache (`STRIATUM_HOME` or `~/.striatum/cache`) so `skill list` can see them; use `--no-cache` for output only
+- `striatum pull <reference>` — download artifact and dependencies to the output directory (default: current working directory; each artifact in `<output>/<name>/`) and into the Striatum cache; use `--no-cache` for output only
 - `striatum inspect <reference>` — show remote artifact metadata
-- `striatum skill install <reference>` — install a skill into Cursor/Claude skills directories
-- `striatum skill uninstall <name>` — remove an installed skill
-- `striatum skill list` — list skills in local cache; use `--installed` to list installed skills (optional `--target cursor|claude`)
+- `striatum install <reference>` — install an artifact into Cursor/Claude directories (kind auto-detected from manifest; Workflow installs to `~/.claude/workflows/`, Skill to skills directories, Prompt to prompts directories)
+- `striatum uninstall <name>` — remove an installed artifact; use `--kind` to disambiguate when multiple kinds share the same name
+- `striatum list` — list artifacts in local cache (all kinds, with KIND column); use `--installed` to list installed artifacts (optional `--target cursor|claude`)
 
 ### Usage examples
 
 ```bash
 striatum init --name my-skill --kind Skill --entrypoint SKILL.md
 striatum init --name severity-rubric --kind Prompt --entrypoint severity-rubric.md
+striatum init --name thorough-review --kind Workflow --entrypoint review.js
 striatum validate
 striatum validate -f packages/my-skill
 striatum validate --check-deps --registry localhost:5000/skills
@@ -69,14 +70,37 @@ striatum pack -o ./dist
 striatum push localhost:5000/skills/my-skill:1.0.0
 striatum push -f ./my-skill localhost:5000/skills/my-skill:1.0.0
 striatum pull localhost:5000/skills/my-skill:1.0.0
-striatum skill install --target cursor localhost:5000/skills/my-skill:1.0.0
-striatum skill uninstall --target cursor my-skill
+striatum install --target cursor localhost:5000/skills/my-skill:1.0.0
+striatum install --target claude localhost:5000/workflows/thorough-review:1.0.0
+striatum uninstall --target cursor my-skill
 striatum inspect localhost:5000/skills/my-skill:1.0.0
-striatum skill list
-striatum skill list --installed --target cursor
+striatum list
+striatum list --installed --target cursor
 ```
 
 See [docs/demo.md](docs/demo.md) for a full-flow demo (pack, push, pull, install, uninstall).
+
+### Workflow artifacts
+
+Workflow artifacts are [Claude Code workflow](https://docs.anthropic.com/en/docs/claude-code/workflows) scripts that orchestrate multiple agents for complex tasks. When a Workflow declares Prompt dependencies, `striatum pack` resolves them, fetches any that are missing from the local cache, and bundles the prompt files as extra OCI layers under `deps/<prompt-name>/`. After install, the layout on disk looks like this:
+
+```text
+~/.claude/workflows/thorough-review/
+  review.js
+  deps/
+    severity-rubric/
+      severity-rubric.md
+```
+
+Example flow:
+
+```bash
+striatum init --name thorough-review --kind Workflow --entrypoint review.js
+# add a Prompt dependency to artifact.json, then:
+striatum pack
+striatum push localhost:5000/workflows/thorough-review:1.0.0
+striatum install --target claude localhost:5000/workflows/thorough-review:1.0.0
+```
 
 ## Releasing
 
