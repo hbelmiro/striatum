@@ -18,7 +18,10 @@ import (
 // the given name@version. Returns (manifest, nil) on cache hit, (nil, nil) on cache miss
 // or after removing a corrupt entry, or (nil, error) on unrecoverable failures.
 func loadCachedManifest(name, version string) (*artifact.Manifest, error) {
-	cacheDir, ok := installer.FindCacheDir(name, version)
+	cacheDir, ok, err := installer.FindCacheDir(name, version)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, nil
 	}

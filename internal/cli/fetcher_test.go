@@ -311,6 +311,36 @@ func TestLoadCachedManifest_PromptKind_CacheHit(t *testing.T) {
 	}
 }
 
+func TestLoadCachedManifest_AmbiguousCache_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+
+	for _, kind := range []string{"Prompt", "Skill"} {
+		cacheDir := installer.CacheDir(kind, "ambig", "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := &artifact.Manifest{
+			APIVersion: "striatum.dev/v1alpha2",
+			Kind:       kind,
+			Metadata:   artifact.Metadata{Name: "ambig", Version: "1.0.0"},
+			Spec:       artifact.Spec{Entrypoint: "entry.md", Files: []string{"entry.md"}},
+		}
+		data, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := loadCachedManifest("ambig", "1.0.0")
+	if err == nil {
+		t.Fatal("loadCachedManifest should return error for ambiguous cache")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("error should mention ambiguous: %v", err)
+	}
+}
+
 // Ensure the DependencyFetcher interface is satisfied at compile time.
 var (
 	_ resolver.DependencyFetcher = (*cacheFirstFetcher)(nil)

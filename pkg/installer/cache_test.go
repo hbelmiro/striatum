@@ -52,7 +52,10 @@ func TestFindCacheDir_Found(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := FindCacheDir("my-prompt", "1.0.0")
+	got, ok, err := FindCacheDir("my-prompt", "1.0.0")
+	if err != nil {
+		t.Fatalf("FindCacheDir err = %v", err)
+	}
 	if !ok {
 		t.Fatal("FindCacheDir should find existing entry")
 	}
@@ -64,9 +67,33 @@ func TestFindCacheDir_Found(t *testing.T) {
 func TestFindCacheDir_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)
-	_, ok := FindCacheDir("nonexistent", "1.0.0")
+	_, ok, err := FindCacheDir("nonexistent", "1.0.0")
+	if err != nil {
+		t.Fatalf("FindCacheDir err = %v", err)
+	}
 	if ok {
 		t.Fatal("FindCacheDir should return false for missing entry")
+	}
+}
+
+func TestFindCacheDir_Ambiguous(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+	for _, kind := range []string{"Prompt", "Skill"} {
+		cacheDir := CacheDir(kind, "foo", "1.0.0")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := FindCacheDir("foo", "1.0.0")
+	if err == nil {
+		t.Fatal("FindCacheDir should return error when multiple kinds match")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("error should mention ambiguous: %v", err)
 	}
 }
 
