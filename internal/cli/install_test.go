@@ -2024,6 +2024,134 @@ func TestInstall_Workflow_LocalDir_Claude_HappyPath(t *testing.T) {
 	}
 }
 
+func TestInstall_Workflow_CreatesEntrypointSymlink(t *testing.T) {
+	wfDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalArtifact(t, wfDir, "Workflow", "thorough-review", "1.0.0", "review.js", map[string]string{
+		"review.js": "// workflow script",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow: %v", err)
+	}
+
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	linkPath := filepath.Join(workflowsDir, "thorough-review.js")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not created at %s: %v", linkPath, err)
+	}
+	wantTarget := filepath.Join("thorough-review", "review.js")
+	if target != wantTarget {
+		t.Errorf("symlink target = %q, want %q", target, wantTarget)
+	}
+	if _, err := os.Stat(linkPath); err != nil {
+		t.Errorf("symlink does not resolve to a file: %v", err)
+	}
+}
+
+func TestInstall_Workflow_OCI_CreatesEntrypointSymlink(t *testing.T) {
+	baseDir := t.TempDir()
+	layoutDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "run.js"), []byte("// wf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := oci.Pack(context.Background(), manifest, baseDir, layoutDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", "oci:" + layoutDir + ":my-wf:1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install workflow OCI: %v", err)
+	}
+
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	linkPath := filepath.Join(workflowsDir, "my-wf.js")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not created at %s: %v", linkPath, err)
+	}
+	wantTarget := filepath.Join("my-wf", "run.js")
+	if target != wantTarget {
+		t.Errorf("symlink target = %q, want %q", target, wantTarget)
+	}
+}
+
+func TestInstall_ReinstallAll_RecreatesWorkflowSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	wfCache := installer.CacheDir("Workflow", "my-wf", "1.0.0")
+	if err := os.MkdirAll(wfCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "run.js"), []byte("// wf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "my-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	linkPath := filepath.Join(workflowsDir, "my-wf.js")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not created at %s: %v", linkPath, err)
+	}
+	wantTarget := filepath.Join("my-wf", "run.js")
+	if target != wantTarget {
+		t.Errorf("symlink target = %q, want %q", target, wantTarget)
+	}
+}
+
 func TestInstall_Workflow_Cursor_Rejected(t *testing.T) {
 	wfDir := t.TempDir()
 	home := t.TempDir()
@@ -2255,6 +2383,13 @@ func TestInstall_Workflow_WithPromptDep_InstallsToDepDir(t *testing.T) {
 	promptsDir := filepath.Join(home, ".claude", "prompts", depName)
 	if _, err := os.Stat(promptsDir); err == nil {
 		t.Errorf("prompt dep should NOT be installed to prompts/ dir, but %s exists", promptsDir)
+	}
+
+	// Symlink must be created even when the workflow has prompt deps
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	linkPath := filepath.Join(workflowsDir, "thorough-review.js")
+	if _, err := os.Readlink(linkPath); err != nil {
+		t.Errorf("entrypoint symlink not created when workflow has deps: %v", err)
 	}
 
 	entries, err := installer.LoadInstalled()
@@ -2509,5 +2644,225 @@ func TestInstall_Workflow_PromptDepDoesNotConflictWithStandalonePrompt(t *testin
 	}
 	if !foundStandalonePrompt {
 		t.Error("standalone prompt DB entry should be preserved")
+	}
+}
+
+func TestInstall_NonWorkflow_DoesNotCreateSymlink(t *testing.T) {
+	skillDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeLocalArtifact(t, skillDir, "Skill", "my-skill", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "# skill",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", skillDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install skill: %v", err)
+	}
+
+	skillsDir := filepath.Join(home, ".claude", "skills")
+	// No .js symlink should appear alongside the skill directory
+	linkPath := filepath.Join(skillsDir, "my-skill.js")
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Errorf("skill install must not create a .js symlink at %s", linkPath)
+	}
+}
+
+func TestInstall_Workflow_Reinstall_UpdatesSymlink(t *testing.T) {
+	wfDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// First install: entrypoint is v1.js
+	writeLocalArtifact(t, wfDir, "Workflow", "my-wf", "1.0.0", "v1.js", map[string]string{
+		"v1.js": "// v1",
+	})
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", wfDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	linkPath := filepath.Join(workflowsDir, "my-wf.js")
+	firstTarget, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not created after first install: %v", err)
+	}
+	if want := filepath.Join("my-wf", "v1.js"); firstTarget != want {
+		t.Errorf("first symlink target = %q, want %q", firstTarget, want)
+	}
+
+	// Second install: entrypoint changed to v2.js (simulates upgrade)
+	writeLocalArtifact(t, wfDir, "Workflow", "my-wf", "2.0.0", "v2.js", map[string]string{
+		"v2.js": "// v2",
+	})
+	root2 := NewRootCommand()
+	root2.SetOut(&strings.Builder{})
+	root2.SetArgs([]string{"install", "--target", "claude", "--force", wfDir})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("second install (force): %v", err)
+	}
+
+	secondTarget, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not present after second install: %v", err)
+	}
+	if want := filepath.Join("my-wf", "v2.js"); secondTarget != want {
+		t.Errorf("second symlink target = %q, want %q", secondTarget, want)
+	}
+}
+
+func TestInstall_ReinstallAll_RestoresWorkflowPromptDeps(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	depName := "review-shared"
+	depVersion := "1.0.0"
+
+	// Set up workflow cache with a manifest that declares a Prompt dep
+	wfCache := installer.CacheDir("Workflow", "thorough-review", "1.0.0")
+	if err := os.MkdirAll(wfCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wfManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: "reg.example.com",
+				Repository:   depName,
+				Tag:          depVersion,
+			},
+		},
+	}
+	data, err := json.Marshal(wfManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "review.js"), []byte("// workflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up the prompt dep in cache
+	depCache := installer.CacheDir("Prompt", depName, depVersion)
+	if err := os.MkdirAll(depCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Prompt",
+		Metadata:   artifact.Metadata{Name: depName, Version: depVersion},
+		Spec:       artifact.Spec{Entrypoint: "severity-rubric.md", Files: []string{"severity-rubric.md"}},
+	}
+	depData, err := json.Marshal(depManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCache, "artifact.json"), depData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCache, "severity-rubric.md"), []byte("# Severity Rubric"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the workflow is in the DB (prompt dep is embedded, not tracked)
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "thorough-review", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+
+	// Verify the prompt dep was restored into the workflow's deps/ dir
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	depFile := filepath.Join(workflowsDir, "thorough-review", "deps", depName, "severity-rubric.md")
+	if _, err := os.Stat(depFile); err != nil {
+		t.Errorf("prompt dep not restored to deps/: %v", err)
+	}
+
+	// Verify symlink still exists
+	linkPath := filepath.Join(workflowsDir, "thorough-review.js")
+	if _, err := os.Readlink(linkPath); err != nil {
+		t.Errorf("symlink should still exist: %v", err)
+	}
+}
+
+func TestInstall_ReinstallAll_WorkflowPromptDepNotInCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Workflow manifest declares a Prompt dep, but dep is NOT in cache
+	wfCache := installer.CacheDir("Workflow", "my-wf", "1.0.0")
+	if err := os.MkdirAll(wfCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wfManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{
+				RegistryHost: "reg.example.com",
+				Repository:   "missing-dep",
+				Tag:          "1.0.0",
+			},
+		},
+	}
+	data, err := json.Marshal(wfManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfCache, "run.js"), []byte("// wf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "my-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	errOut := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all should not fail when dep missing from cache: %v", err)
+	}
+
+	// Should log a warning
+	if !strings.Contains(errOut.String(), "missing-dep") || !strings.Contains(errOut.String(), "not in cache") {
+		t.Errorf("expected warning about missing dep in stderr, got: %q", errOut.String())
+	}
+
+	// Workflow itself should still be installed
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+	if _, err := os.Stat(filepath.Join(workflowsDir, "my-wf", "run.js")); err != nil {
+		t.Errorf("workflow should still be installed: %v", err)
 	}
 }

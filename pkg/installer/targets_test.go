@@ -225,3 +225,150 @@ func TestRemoveFromTarget_ErrorWhenNotDir(t *testing.T) {
 		t.Error("RemoveFromTarget(file) want error")
 	}
 }
+
+func TestCreateWorkflowSymlink_CreatesRelativeSymlink(t *testing.T) {
+	targetDir := t.TempDir()
+	wfDir := filepath.Join(targetDir, "my-workflow")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "run.js"), []byte("// script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CreateWorkflowSymlink(targetDir, "my-workflow", "run.js"); err != nil {
+		t.Fatalf("CreateWorkflowSymlink: %v", err)
+	}
+
+	linkPath := filepath.Join(targetDir, "my-workflow.js")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	want := filepath.Join("my-workflow", "run.js")
+	if target != want {
+		t.Errorf("symlink target = %q, want %q", target, want)
+	}
+	if _, err := os.Stat(linkPath); err != nil {
+		t.Errorf("symlink does not resolve: %v", err)
+	}
+}
+
+func TestCreateWorkflowSymlink_OverwritesExistingSymlink(t *testing.T) {
+	targetDir := t.TempDir()
+	wfDir := filepath.Join(targetDir, "my-workflow")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "v1.js"), []byte("// v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "v2.js"), []byte("// v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CreateWorkflowSymlink(targetDir, "my-workflow", "v1.js"); err != nil {
+		t.Fatalf("first CreateWorkflowSymlink: %v", err)
+	}
+	if err := CreateWorkflowSymlink(targetDir, "my-workflow", "v2.js"); err != nil {
+		t.Fatalf("second CreateWorkflowSymlink: %v", err)
+	}
+
+	target, err := os.Readlink(filepath.Join(targetDir, "my-workflow.js"))
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	want := filepath.Join("my-workflow", "v2.js")
+	if target != want {
+		t.Errorf("symlink target = %q, want %q", target, want)
+	}
+}
+
+func TestCreateWorkflowSymlink_ErrorsOnRegularFile(t *testing.T) {
+	targetDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(targetDir, "my-workflow.js"), []byte("// user file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CreateWorkflowSymlink(targetDir, "my-workflow", "run.js")
+	if err == nil {
+		t.Fatal("want error when regular file blocks symlink path, got nil")
+	}
+}
+
+func TestCreateWorkflowSymlink_ErrorsOnExistingDirectory(t *testing.T) {
+	targetDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(targetDir, "my-workflow.js"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CreateWorkflowSymlink(targetDir, "my-workflow", "run.js")
+	if err == nil {
+		t.Fatal("want error when directory blocks symlink path, got nil")
+	}
+}
+
+func TestRemoveWorkflowSymlink_RemovesSymlink(t *testing.T) {
+	targetDir := t.TempDir()
+	linkPath := filepath.Join(targetDir, "my-workflow.js")
+	if err := os.Symlink(filepath.Join("my-workflow", "run.js"), linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveWorkflowSymlink(targetDir, "my-workflow"); err != nil {
+		t.Fatalf("RemoveWorkflowSymlink: %v", err)
+	}
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("symlink should be removed")
+	}
+}
+
+func TestRemoveWorkflowSymlink_NoOpWhenMissing(t *testing.T) {
+	targetDir := t.TempDir()
+	if err := RemoveWorkflowSymlink(targetDir, "nonexistent"); err != nil {
+		t.Fatalf("RemoveWorkflowSymlink(missing): %v", err)
+	}
+}
+
+func TestRemoveWorkflowSymlink_SkipsRegularFile(t *testing.T) {
+	targetDir := t.TempDir()
+	filePath := filepath.Join(targetDir, "my-workflow.js")
+	if err := os.WriteFile(filePath, []byte("// user file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveWorkflowSymlink(targetDir, "my-workflow"); err != nil {
+		t.Fatalf("RemoveWorkflowSymlink(regular file): %v", err)
+	}
+	if _, err := os.Stat(filePath); err != nil {
+		t.Error("regular file should not be removed")
+	}
+}
+
+func TestCreateWorkflowSymlink_EntrypointInSubdirectory(t *testing.T) {
+	targetDir := t.TempDir()
+	wfDir := filepath.Join(targetDir, "my-wf")
+	if err := os.MkdirAll(filepath.Join(wfDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wfDir, "src", "main.js"), []byte("// script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CreateWorkflowSymlink(targetDir, "my-wf", "src/main.js"); err != nil {
+		t.Fatalf("CreateWorkflowSymlink with subdir entrypoint: %v", err)
+	}
+
+	linkPath := filepath.Join(targetDir, "my-wf.js")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	want := filepath.Join("my-wf", "src", "main.js")
+	if target != want {
+		t.Errorf("symlink target = %q, want %q", target, want)
+	}
+	if _, err := os.Stat(linkPath); err != nil {
+		t.Errorf("symlink does not resolve: %v", err)
+	}
+}

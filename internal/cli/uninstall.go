@@ -124,6 +124,11 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		if err != nil {
 			return fmt.Errorf("resolve target for %s: %w", e.Name, err)
 		}
+		if e.Kind == "Workflow" {
+			if err := installer.RemoveWorkflowSymlink(targetDir, e.Name); err != nil {
+				return fmt.Errorf("remove workflow symlink for %s: %w", e.Name, err)
+			}
+		}
 		if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
 			return fmt.Errorf("remove %s from target: %w", e.Name, err)
 		}
@@ -155,6 +160,11 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
 			if err != nil {
 				return fmt.Errorf("resolve target for orphan %s: %w", e.Name, err)
+			}
+			if e.Kind == "Workflow" {
+				if err := installer.RemoveWorkflowSymlink(targetDir, e.Name); err != nil {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove workflow symlink for orphan", e.Name, ":", err)
+				}
 			}
 			if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Name, "from target:", err)

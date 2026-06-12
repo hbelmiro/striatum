@@ -1100,3 +1100,200 @@ func TestUninstall_Workflow_RemovesFromWorkflowsDir(t *testing.T) {
 		t.Errorf("DB should be empty after uninstall, got %d entries", len(entries))
 	}
 }
+
+func TestUninstall_Workflow_RemovesSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "thorough-review", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "review.js", Files: []string{"review.js"}},
+	}
+	cacheDir := installer.CacheDir("Workflow", "thorough-review", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "review.js"), []byte("// workflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	workflowsDir, err := installer.Targets("claude", "", "Workflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, workflowsDir, "thorough-review"); err != nil {
+		t.Fatal(err)
+	}
+	// Create the symlink that install would have created
+	linkPath := filepath.Join(workflowsDir, "thorough-review.js")
+	if err := os.Symlink(filepath.Join("thorough-review", "review.js"), linkPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "thorough-review", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"uninstall", "--target", "claude", "thorough-review"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall workflow: %v", err)
+	}
+
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("symlink thorough-review.js should be removed after uninstall")
+	}
+}
+
+func TestUninstall_Workflow_NoSymlink_StillSucceeds(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	cacheDir := installer.CacheDir("Workflow", "my-wf", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "my-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "run.js"), []byte("// wf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	workflowsDir, err := installer.Targets("claude", "", "Workflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(cacheDir, workflowsDir, "my-wf"); err != nil {
+		t.Fatal(err)
+	}
+	// Intentionally do NOT create the symlink — simulates manual removal
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "my-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"uninstall", "--target", "claude", "my-wf"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall workflow without symlink: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workflowsDir, "my-wf")); !os.IsNotExist(err) {
+		t.Error("workflow dir should be removed")
+	}
+}
+
+func TestUninstall_WorkflowOrphan_RemovesSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	// Set up a root skill that a workflow depends on (InstalledWith = root skill name)
+	rootManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "root-skill", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	rootCache := installer.CacheDir("Skill", "root-skill", "1.0.0")
+	if err := os.MkdirAll(rootCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, rootCache, rootManifest)
+
+	skillsDir, err := installer.Targets("claude", "", "Skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(rootCache, skillsDir, "root-skill"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up a workflow orphan (InstalledWith points to root-skill)
+	wfManifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Workflow",
+		Metadata:   artifact.Metadata{Name: "orphan-wf", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "run.js", Files: []string{"run.js"}},
+	}
+	wfCache := installer.CacheDir("Workflow", "orphan-wf", "1.0.0")
+	if err := os.MkdirAll(wfCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, wfCache, wfManifest)
+	if err := os.WriteFile(filepath.Join(wfCache, "run.js"), []byte("// wf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	workflowsDir, err := installer.Targets("claude", "", "Workflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.InstallToTarget(wfCache, workflowsDir, "orphan-wf"); err != nil {
+		t.Fatal(err)
+	}
+	// Create the symlink
+	linkPath := filepath.Join(workflowsDir, "orphan-wf.js")
+	if err := os.Symlink(filepath.Join("orphan-wf", "run.js"), linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "root-skill", Kind: "Skill", Version: "1.0.0", Registry: "reg", Target: "claude", InstalledWith: "", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "orphan-wf", Kind: "Workflow", Version: "1.0.0", Registry: "reg", Target: "claude", InstalledWith: "root-skill", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Uninstall root-skill — orphan-wf should be cleaned up including its symlink
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"uninstall", "--target", "claude", "root-skill"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall root-skill: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workflowsDir, "orphan-wf")); !os.IsNotExist(err) {
+		t.Error("orphan workflow dir should be removed")
+	}
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("orphan workflow symlink should be removed")
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty, got %d entries", len(entries))
+	}
+}
