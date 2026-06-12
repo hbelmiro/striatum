@@ -1,3 +1,4 @@
-// Package installer handles skill installation for Cursor, Claude Code, and
-// project-level skills directories (copy from cache to target, no symlinks).
+// Package installer handles artifact installation for Cursor, Claude Code, and
+// project-level directories (copy from cache to target). For Workflow artifacts,
+// it also creates an entrypoint symlink so Claude Code can discover the workflow.
 package installer

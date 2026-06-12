@@ -103,6 +103,57 @@ func runReinstallAll(cmd *cobra.Command) error {
 			}
 			return err
 		}
+		if e.Kind == "Workflow" {
+			m, loadErr := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
+			if loadErr != nil {
+				e.Status = "error"
+				e.LastError = loadErr.Error()
+				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+					return fmt.Errorf("%w (also failed to persist state: %v)", loadErr, saveErr)
+				}
+				return fmt.Errorf("load manifest for workflow symlink %s: %w", e.Name, loadErr)
+			}
+			if symlinkErr := installer.CreateWorkflowSymlink(targetDir, e.Name, m.Spec.Entrypoint); symlinkErr != nil {
+				e.Status = "error"
+				e.LastError = symlinkErr.Error()
+				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+					return fmt.Errorf("%w (also failed to persist state: %v)", symlinkErr, saveErr)
+				}
+				return fmt.Errorf("create workflow symlink for %s: %w", e.Name, symlinkErr)
+			}
+			// Restore embedded Prompt deps from cache
+			if len(m.Dependencies) > 0 {
+				workflowDepsDir := filepath.Join(targetDir, e.Name, "deps")
+				for _, dep := range m.Dependencies {
+					depName, depVersion := depNameVersion(dep)
+					if depName == "" || depVersion == "" {
+						continue
+					}
+					depCacheDir, found, findErr := installer.FindCacheDir(depName, depVersion)
+					if findErr != nil {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not locate %s@%s in cache: %v\n", depName, depVersion, findErr)
+						continue
+					}
+					if !found {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s@%s not in cache, skipping embedded dep restore\n", depName, depVersion)
+						continue
+					}
+					depManifest, loadErr := artifact.Load(filepath.Join(depCacheDir, "artifact.json"))
+					if loadErr != nil {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not load manifest for %s@%s: %v\n", depName, depVersion, loadErr)
+						continue
+					}
+					if depManifest.Kind != "Prompt" {
+						continue
+					}
+					if installErr := installer.InstallToTarget(depCacheDir, workflowDepsDir, depName); installErr != nil {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not restore embedded dep %s: %v\n", depName, installErr)
+					}
+				}
+			}
+		}
 		e.Status = "ok"
 		e.LastError = ""
 		e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -535,6 +586,16 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		}
 	}
 
+	if rootManifest.Kind == "Workflow" {
+		wfTarget, err := installer.Targets(target, projectPath, "Workflow")
+		if err != nil {
+			return fmt.Errorf("resolve workflow target for symlink: %w", err)
+		}
+		if err := installer.CreateWorkflowSymlink(wfTarget, rootName, rootManifest.Spec.Entrypoint); err != nil {
+			return fmt.Errorf("create workflow symlink: %w", err)
+		}
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	byKey := make(map[string]*installer.InstalledEntry)
 	for i := range existing {
@@ -600,6 +661,34 @@ func resolvedKind(r resolver.ResolvedArtifact) string {
 		return r.Manifest.Kind
 	}
 	return ""
+}
+
+// depNameVersion extracts the artifact name and version from a dependency reference.
+// For OCI dependencies, name is Repository and version is Tag.
+// For Git dependencies, name is derived from Path (last segment) or fallback, version is Ref.
+// Returns empty strings if the dependency type is unrecognized.
+func depNameVersion(dep artifact.Dependency) (string, string) {
+	switch d := dep.(type) {
+	case *artifact.OCIDependency:
+		return d.Repository, d.Tag
+	case *artifact.GitDependency:
+		name := d.Path
+		if name != "" {
+			if i := strings.LastIndex(name, "/"); i >= 0 {
+				name = name[i+1:]
+			}
+		}
+		if name == "" {
+			if i := strings.LastIndex(d.URL, "/"); i >= 0 {
+				name = d.URL[i+1:]
+			} else {
+				name = d.URL
+			}
+		}
+		return name, d.Ref
+	default:
+		return "", ""
+	}
 }
 
 // mergeInstalledWith adds rootName to the space-separated list in existing,

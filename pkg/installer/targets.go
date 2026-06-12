@@ -92,6 +92,46 @@ func RemoveFromTarget(targetDir, name string) error {
 	return os.RemoveAll(p)
 }
 
+// CreateWorkflowSymlink creates a relative symlink at targetDir/<name>.js -> <name>/<entrypoint>.
+// If a symlink already exists at that path it is replaced (idempotent). If a regular file or
+// directory occupies the path an error is returned.
+func CreateWorkflowSymlink(targetDir, name, entrypoint string) error {
+	linkPath := filepath.Join(targetDir, name+".js")
+	linkTarget := filepath.Join(name, entrypoint)
+
+	info, err := os.Lstat(linkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if removeErr := os.Remove(linkPath); removeErr != nil {
+				return fmt.Errorf("remove existing workflow symlink %s: %w", linkPath, removeErr)
+			}
+		} else {
+			return fmt.Errorf("cannot create workflow symlink: %s already exists and is not a symlink", linkPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	return os.Symlink(linkTarget, linkPath)
+}
+
+// RemoveWorkflowSymlink removes the symlink at targetDir/<name>.js if it exists and is a symlink.
+// If the path does not exist or is not a symlink, it is left unchanged and nil is returned.
+func RemoveWorkflowSymlink(targetDir, name string) error {
+	linkPath := filepath.Join(targetDir, name+".js")
+	info, err := os.Lstat(linkPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	return os.Remove(linkPath)
+}
+
 func copyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
