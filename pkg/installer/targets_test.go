@@ -372,3 +372,17 @@ func TestCreateWorkflowSymlink_EntrypointInSubdirectory(t *testing.T) {
 		t.Errorf("symlink does not resolve: %v", err)
 	}
 }
+
+func TestCreateWorkflowSymlink_CreatesParentDirectoryIfMissing(t *testing.T) {
+	home := t.TempDir()
+	workflowsDir := filepath.Join(home, ".claude", "workflows")
+
+	if err := CreateWorkflowSymlink(workflowsDir, "my-workflow", "run.js"); err != nil {
+		t.Fatalf("CreateWorkflowSymlink should create parent dir, got: %v", err)
+	}
+
+	linkPath := filepath.Join(workflowsDir, "my-workflow.js")
+	if _, err := os.Lstat(linkPath); err != nil {
+		t.Fatalf("symlink not created: %v", err)
+	}
+}
