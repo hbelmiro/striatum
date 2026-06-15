@@ -32,10 +32,12 @@ func newPushCmd() *cobra.Command {
 			if err := artifact.ValidateLocal(m, projectRoot); err != nil {
 				return fmt.Errorf("validate local files: %w", err)
 			}
-			if err := oci.Push(cmd.Context(), m, projectRoot, reference); err != nil {
+			desc, err := oci.Push(cmd.Context(), m, projectRoot, reference)
+			if err != nil {
 				return fmt.Errorf("push artifact: %w", err)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pushed to", reference)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Digest:", desc.Digest.String())
 			return nil
 		},
 	}

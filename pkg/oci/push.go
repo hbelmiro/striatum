@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hbelmiro/striatum/pkg/artifact"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
@@ -15,34 +16,37 @@ import (
 // Reference format: "host/repo/name:tag" for remote, or "oci:/path/to/layout:tag" for local layout.
 // For oci: references, the path is passed to the OCI layout store as-is (use absolute paths
 // for predictable behavior across platforms).
-func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference string) error {
+// Returns the manifest descriptor of the pushed artifact.
+func Push(ctx context.Context, m *artifact.Manifest, baseDir string, reference string) (ocispec.Descriptor, error) {
 	repo, tag, _, err := SplitReference(reference)
 	if err != nil {
-		return fmt.Errorf("parse reference: %w", err)
+		return ocispec.Descriptor{}, fmt.Errorf("parse reference: %w", err)
 	}
 
 	mem := memory.New()
 	if err := packToTarget(ctx, m, baseDir, mem, tag); err != nil {
-		return fmt.Errorf("pack artifact: %w", err)
+		return ocispec.Descriptor{}, fmt.Errorf("pack artifact: %w", err)
 	}
 
 	if strings.HasPrefix(reference, "oci:") {
 		layoutStore, err := oci.New(repo)
 		if err != nil {
-			return fmt.Errorf("open OCI layout: %w", err)
+			return ocispec.Descriptor{}, fmt.Errorf("open OCI layout: %w", err)
 		}
-		if _, err = oras.Copy(ctx, mem, tag, layoutStore, tag, oras.DefaultCopyOptions); err != nil {
-			return fmt.Errorf("copy to OCI layout: %w", err)
+		desc, err := oras.Copy(ctx, mem, tag, layoutStore, tag, oras.DefaultCopyOptions)
+		if err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("copy to OCI layout: %w", err)
 		}
-		return nil
+		return desc, nil
 	}
 
 	reg, err := NewRepository(repo)
 	if err != nil {
-		return fmt.Errorf("create repository: %w", err)
+		return ocispec.Descriptor{}, fmt.Errorf("create repository: %w", err)
 	}
-	if _, err = oras.Copy(ctx, mem, tag, reg, tag, oras.DefaultCopyOptions); err != nil {
-		return fmt.Errorf("push to registry: %w", err)
+	desc, err := oras.Copy(ctx, mem, tag, reg, tag, oras.DefaultCopyOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("push to registry: %w", err)
 	}
-	return nil
+	return desc, nil
 }
