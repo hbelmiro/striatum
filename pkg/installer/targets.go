@@ -96,6 +96,9 @@ func RemoveFromTarget(targetDir, name string) error {
 // If a symlink already exists at that path it is replaced (idempotent). If a regular file or
 // directory occupies the path an error is returned.
 func CreateWorkflowSymlink(targetDir, name, entrypoint string) error {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
 	linkPath := filepath.Join(targetDir, name+".js")
 	linkTarget := filepath.Join(name, entrypoint)
 
