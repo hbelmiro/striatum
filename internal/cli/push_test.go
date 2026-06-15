@@ -43,6 +43,9 @@ func TestPush_ToOCILayoutSucceeds(t *testing.T) {
 	if !strings.Contains(out.String(), "Pushed") {
 		t.Errorf("output %q does not contain Pushed", out.String())
 	}
+	if !strings.Contains(out.String(), "Digest: sha256:") {
+		t.Errorf("output %q does not contain digest line", out.String())
+	}
 }
 
 func TestPush_NoArtifactJSON_Errors(t *testing.T) {
@@ -127,5 +130,8 @@ func TestPush_WithManifestFlagFromOtherDir(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Pushed") {
 		t.Errorf("output %q does not contain Pushed", out.String())
+	}
+	if !strings.Contains(out.String(), "Digest: sha256:") {
+		t.Errorf("output %q does not contain digest line", out.String())
 	}
 }
