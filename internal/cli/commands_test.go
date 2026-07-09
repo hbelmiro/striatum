@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var subcommands = []string{"init", "validate", "pack", "push", "pull", "inspect", "install", "uninstall", "list"}
+var subcommands = []string{"init", "validate", "pack", "push", "pull", "inspect", "install", "uninstall", "list", "update"}
 
 func TestSubcommands_Registered(t *testing.T) {
 	root := NewRootCommand()
