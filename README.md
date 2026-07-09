@@ -252,6 +252,25 @@ striatum list --installed --project .
 | `-t`, `--target` | Filter by target (`cursor` or `claude`); only with `--installed` |
 | `--project`      | Filter by project path; only with `--installed`                  |
 
+### update
+
+Check for newer versions of installed artifacts and upgrade them in place. Without arguments, updates all installed artifacts. With arguments, updates only the named artifacts.
+
+```bash
+striatum update
+striatum update my-skill
+striatum update --check
+striatum update --target claude
+striatum update --yes
+```
+
+| Flag             | Description                                |
+|------------------|--------------------------------------------|
+| `--check`        | List outdated artifacts without installing |
+| `-t`, `--target` | Filter by target (`cursor` or `claude`)    |
+| `--project`      | Filter by project path                     |
+| `-y`, `--yes`    | Skip confirmation prompt                   |
+
 ## Supported registries
 
 Striatum works with any OCI-compliant container registry. Tested with:

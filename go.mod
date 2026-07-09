@@ -6,6 +6,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/mod v0.38.0
 	gopkg.in/yaml.v3 v3.0.1
 	oras.land/oras-go/v2 v2.6.1
 )
