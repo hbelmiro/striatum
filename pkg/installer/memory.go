@@ -31,14 +31,10 @@ func ProjectPathToSlug(absPath string) string {
 // MemoryTargetDir resolves a project path to the Claude Code memory directory:
 // ~/.claude/projects/<slug>/memory/
 func MemoryTargetDir(projectPath string) (string, error) {
-	if strings.TrimSpace(projectPath) == "" {
-		return "", errors.New("project path is required for Memory artifacts")
-	}
-	abs, err := filepath.Abs(strings.TrimSpace(projectPath))
+	root, err := ResolveProjectRoot(projectPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve project path: %w", err)
+		return "", err
 	}
-	root := findGitRoot(abs)
 	slug := ProjectPathToSlug(root)
 
 	home := os.Getenv("HOME")
@@ -52,13 +48,25 @@ func MemoryTargetDir(projectPath string) (string, error) {
 	return filepath.Join(home, ".claude", "projects", slug, "memory"), nil
 }
 
-// findGitRoot walks up from dir looking for a .git directory. Returns dir
-// itself if no git root is found.
+// ResolveProjectRoot resolves a project path to its git root (or the absolute
+// path itself if not inside a git repo). This is the canonical path that should
+// be stored in the DB for Memory artifacts.
+func ResolveProjectRoot(projectPath string) (string, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return "", errors.New("project path is required for Memory artifacts")
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(projectPath))
+	if err != nil {
+		return "", fmt.Errorf("resolve project path: %w", err)
+	}
+	return findGitRoot(abs), nil
+}
+
 func findGitRoot(dir string) string {
 	cur := dir
 	for {
-		info, err := os.Stat(filepath.Join(cur, ".git"))
-		if err == nil && info.IsDir() {
+		_, err := os.Lstat(filepath.Join(cur, ".git"))
+		if err == nil {
 			return cur
 		}
 		parent := filepath.Dir(cur)
@@ -248,6 +256,10 @@ func InstallMemoryToTarget(cacheDir, memoryDir, artifactName string, specFiles [
 		return fmt.Errorf("create memory target: %w", err)
 	}
 	for _, f := range specFiles {
+		dstPath := filepath.Join(dest, filepath.FromSlash(f))
+		if rel, relErr := filepath.Rel(dest, dstPath); relErr != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("file %q escapes target directory", f)
+		}
 		src := filepath.Join(cacheDir, filepath.FromSlash(f))
 		data, err := os.ReadFile(src)
 		if err != nil {
@@ -257,7 +269,6 @@ func InstallMemoryToTarget(cacheDir, memoryDir, artifactName string, specFiles [
 		if err != nil {
 			return fmt.Errorf("stat %s: %w", f, err)
 		}
-		dstPath := filepath.Join(dest, filepath.FromSlash(f))
 		if dir := filepath.Dir(dstPath); dir != dest {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("create dir for %s: %w", f, err)

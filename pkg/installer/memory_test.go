@@ -430,6 +430,21 @@ func TestInstallMemoryToTarget_MissingSourceFile(t *testing.T) {
 	}
 }
 
+func TestInstallMemoryToTarget_PathTraversal(t *testing.T) {
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cacheDir, "ok.md"), []byte("safe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	memoryDir := t.TempDir()
+	err := InstallMemoryToTarget(cacheDir, memoryDir, "art", []string{"../../etc/passwd"})
+	if err == nil {
+		t.Fatal("InstallMemoryToTarget should reject path traversal")
+	}
+	if !strings.Contains(err.Error(), "escapes target directory") {
+		t.Errorf("error should mention escape, got: %v", err)
+	}
+}
+
 func TestSlugToPath_EmptySlug(t *testing.T) {
 	_, err := SlugToPath("")
 	if err == nil {
@@ -461,6 +476,57 @@ func TestSlugToPath_WithUnderscoreDir(t *testing.T) {
 	}
 }
 
+func TestResolveProjectRoot_ReturnsGitRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(root, "src", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveProjectRoot(subDir)
+	if err != nil {
+		t.Fatalf("ResolveProjectRoot: %v", err)
+	}
+	if got != root {
+		t.Errorf("ResolveProjectRoot(%q) = %q, want %q", subDir, got, root)
+	}
+}
+
+func TestResolveProjectRoot_SubdirSameAsRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	rootTarget, err := MemoryTargetDir(root)
+	if err != nil {
+		t.Fatalf("MemoryTargetDir(root): %v", err)
+	}
+	subTarget, err := MemoryTargetDir(subDir)
+	if err != nil {
+		t.Fatalf("MemoryTargetDir(subDir): %v", err)
+	}
+	if rootTarget != subTarget {
+		t.Errorf("MemoryTargetDir should resolve to same dir for root (%q) and subdir (%q)", rootTarget, subTarget)
+	}
+
+	rootResolved, _ := ResolveProjectRoot(root)
+	subResolved, _ := ResolveProjectRoot(subDir)
+	if rootResolved != subResolved {
+		t.Errorf("ResolveProjectRoot should return same path for root (%q) and subdir (%q)", rootResolved, subResolved)
+	}
+}
+
 func TestMemoryTargetDir_WhitespaceOnlyPath(t *testing.T) {
 	_, err := MemoryTargetDir("   ")
 	if err == nil {
@@ -481,6 +547,22 @@ func TestFindGitRoot_WalksUp(t *testing.T) {
 	got := findGitRoot(subDir)
 	if got != root {
 		t.Errorf("findGitRoot(%q) = %q, want %q", subDir, got, root)
+	}
+}
+
+func TestFindGitRoot_WorktreeGitFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: /some/path/.git/worktrees/wt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(root, "src", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := findGitRoot(subDir)
+	if got != root {
+		t.Errorf("findGitRoot(%q) = %q, want %q (worktree .git file)", subDir, got, root)
 	}
 }
 

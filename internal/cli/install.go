@@ -138,11 +138,9 @@ func reinstallMemoryToTarget(cmd *cobra.Command, e *installer.InstalledEntry, ca
 		return err
 	}
 	indexEntries := installer.BuildMemoryIndexEntries(cacheDir, e.Name, m.Spec.Files)
-	if len(indexEntries) > 0 {
-		memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
-		if mdErr := installer.AddMemoryIndexEntries(memoryMDPath, e.Name, indexEntries); mdErr != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md: %v\n", mdErr)
-		}
+	memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
+	if mdErr := installer.AddMemoryIndexEntries(memoryMDPath, e.Name, indexEntries); mdErr != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md: %v\n", mdErr)
 	}
 	return nil
 }
@@ -727,11 +725,11 @@ func resolveMemoryTargets(cmd *cobra.Command, projectPath string, allExistingPro
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve memory target dir: %w", err)
 	}
-	abs, err := filepath.Abs(strings.TrimSpace(projectPath))
+	root, err := installer.ResolveProjectRoot(projectPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve project path: %w", err)
+		return nil, nil, fmt.Errorf("resolve project root: %w", err)
 	}
-	return []string{td}, []string{abs}, nil
+	return []string{td}, []string{root}, nil
 }
 
 func installMemoryToDir(cmd *cobra.Command, cacheDir, targetDir, artifactName string, specFiles []string) error {
@@ -739,11 +737,9 @@ func installMemoryToDir(cmd *cobra.Command, cacheDir, targetDir, artifactName st
 		return fmt.Errorf("install memory to %s: %w", targetDir, err)
 	}
 	indexEntries := installer.BuildMemoryIndexEntries(cacheDir, artifactName, specFiles)
-	if len(indexEntries) > 0 {
-		memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
-		if err := installer.AddMemoryIndexEntries(memoryMDPath, artifactName, indexEntries); err != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md at %s: %v\n", targetDir, err)
-		}
+	memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
+	if err := installer.AddMemoryIndexEntries(memoryMDPath, artifactName, indexEntries); err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md at %s: %v\n", targetDir, err)
 	}
 	warnings := installer.ValidateMemoryLinks(targetDir, artifactName)
 	for _, w := range warnings {
