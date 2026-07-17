@@ -536,8 +536,11 @@ func TestSupportedKindsList_IncludesAllKinds(t *testing.T) {
 	if !strings.Contains(list, "Workflow") {
 		t.Errorf("SupportedKindsList() = %q, want it to contain Workflow", list)
 	}
-	if list != "Prompt, Skill, Workflow" {
-		t.Errorf("SupportedKindsList() = %q, want alphabetical: Prompt, Skill, Workflow", list)
+	if !strings.Contains(list, "Memory") {
+		t.Errorf("SupportedKindsList() = %q, want it to contain Memory", list)
+	}
+	if list != "Memory, Prompt, Skill, Workflow" {
+		t.Errorf("SupportedKindsList() = %q, want alphabetical: Memory, Prompt, Skill, Workflow", list)
 	}
 }
 
@@ -556,6 +559,24 @@ func TestValidate_WorkflowKind(t *testing.T) {
 func TestIsSupportedKind_Workflow(t *testing.T) {
 	if !IsSupportedKind("Workflow") {
 		t.Error("IsSupportedKind(\"Workflow\") = false, want true")
+	}
+}
+
+func TestValidate_MemoryKind(t *testing.T) {
+	m := &Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Memory",
+		Metadata:   Metadata{Name: "team-conventions", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "feedback_testing.md", Files: []string{"feedback_testing.md"}},
+	}
+	if err := Validate(m); err != nil {
+		t.Errorf("Validate() err = %v, want nil for Memory kind", err)
+	}
+}
+
+func TestIsSupportedKind_Memory(t *testing.T) {
+	if !IsSupportedKind("Memory") {
+		t.Error("IsSupportedKind(\"Memory\") = false, want true")
 	}
 }
 

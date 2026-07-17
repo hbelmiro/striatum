@@ -21,7 +21,7 @@ import (
 
 func newInstallCmd() *cobra.Command {
 	var target, projectPath string
-	var force, reinstallAll bool
+	var force, reinstallAll, allExistingProjects bool
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Pull and install an artifact into the appropriate target directory",
@@ -41,13 +41,14 @@ func newInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force)
+			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force, allExistingProjects)
 		},
 	}
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Install target: cursor or claude (required)")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path for project-level install (e.g. .)")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite conflicting versions")
 	cmd.Flags().BoolVar(&reinstallAll, "reinstall-all", false, "Replay all entries from install DB")
+	cmd.Flags().BoolVar(&allExistingProjects, "all-existing-projects", false, "Install Memory artifacts to all existing Claude Code project directories")
 	return cmd
 }
 
@@ -61,107 +62,133 @@ func runReinstallAll(cmd *cobra.Command) error {
 	}
 	for i := range entries {
 		e := &entries[i]
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
-		if err != nil {
-			e.Status = "error"
-			e.LastError = err.Error()
-			if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-				return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
-			}
+		if err := reinstallEntry(cmd, e, entries); err != nil {
 			return err
 		}
-		cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
-		if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
-			if !os.IsNotExist(statErr) {
-				return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
-			}
-			if strings.TrimSpace(e.Registry) == "" {
-				e.Status = "error"
-				e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
-				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-					return fmt.Errorf("%s@%s: %s (also failed to persist state: %v)", e.Name, e.Version, e.LastError, saveErr)
-				}
-				return fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError)
-			}
-			if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
-				e.Status = "error"
-				e.LastError = err.Error()
-				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-					return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
-				}
-				return err
-			}
-		}
-		if err := installer.InstallToTarget(cacheDir, targetDir, e.Name); err != nil {
-			e.Status = "error"
-			e.LastError = err.Error()
-			e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-				return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
-			}
-			return err
-		}
-		if e.Kind == "Workflow" {
-			m, loadErr := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
-			if loadErr != nil {
-				e.Status = "error"
-				e.LastError = loadErr.Error()
-				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-					return fmt.Errorf("%w (also failed to persist state: %v)", loadErr, saveErr)
-				}
-				return fmt.Errorf("load manifest for workflow symlink %s: %w", e.Name, loadErr)
-			}
-			if symlinkErr := installer.CreateWorkflowSymlink(targetDir, e.Name, m.Spec.Entrypoint); symlinkErr != nil {
-				e.Status = "error"
-				e.LastError = symlinkErr.Error()
-				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				if saveErr := installer.SaveInstalled(entries); saveErr != nil {
-					return fmt.Errorf("%w (also failed to persist state: %v)", symlinkErr, saveErr)
-				}
-				return fmt.Errorf("create workflow symlink for %s: %w", e.Name, symlinkErr)
-			}
-			// Restore embedded Prompt deps from cache
-			if len(m.Dependencies) > 0 {
-				workflowDepsDir := filepath.Join(targetDir, e.Name, "deps")
-				for _, dep := range m.Dependencies {
-					depName, depVersion := depNameVersion(dep)
-					if depName == "" || depVersion == "" {
-						continue
-					}
-					depCacheDir, found, findErr := installer.FindCacheDir(depName, depVersion)
-					if findErr != nil {
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not locate %s@%s in cache: %v\n", depName, depVersion, findErr)
-						continue
-					}
-					if !found {
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s@%s not in cache, skipping embedded dep restore\n", depName, depVersion)
-						continue
-					}
-					depManifest, loadErr := artifact.Load(filepath.Join(depCacheDir, "artifact.json"))
-					if loadErr != nil {
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not load manifest for %s@%s: %v\n", depName, depVersion, loadErr)
-						continue
-					}
-					if depManifest.Kind != "Prompt" {
-						continue
-					}
-					if installErr := installer.InstallToTarget(depCacheDir, workflowDepsDir, depName); installErr != nil {
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not restore embedded dep %s: %v\n", depName, installErr)
-					}
-				}
-			}
-		}
-		e.Status = "ok"
-		e.LastError = ""
-		e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 	if err := installer.SaveInstalled(entries); err != nil {
 		return fmt.Errorf("save installed: %w", err)
 	}
 	return nil
+}
+
+func reinstallTargetDir(e *installer.InstalledEntry) (string, error) {
+	if e.Kind == "Memory" {
+		return installer.MemoryTargetDir(e.ProjectPath)
+	}
+	return installer.Targets(e.Target, e.ProjectPath, e.Kind)
+}
+
+func reinstallEntry(cmd *cobra.Command, e *installer.InstalledEntry, entries []installer.InstalledEntry) error {
+	targetDir, err := reinstallTargetDir(e)
+	if err != nil {
+		return reinstallError(e, entries, err)
+	}
+	cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
+	if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
+		if !os.IsNotExist(statErr) {
+			return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
+		}
+		if strings.TrimSpace(e.Registry) == "" {
+			e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
+			return reinstallError(e, entries, fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError))
+		}
+		if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
+			return reinstallError(e, entries, err)
+		}
+	}
+	if err := reinstallToTarget(cmd, e, cacheDir, targetDir); err != nil {
+		return reinstallError(e, entries, err)
+	}
+	e.Status = "ok"
+	e.LastError = ""
+	e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return nil
+}
+
+func reinstallError(e *installer.InstalledEntry, entries []installer.InstalledEntry, err error) error {
+	e.Status = "error"
+	e.LastError = err.Error()
+	e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if saveErr := installer.SaveInstalled(entries); saveErr != nil {
+		return fmt.Errorf("%w (also failed to persist state: %v)", err, saveErr)
+	}
+	return err
+}
+
+func reinstallToTarget(cmd *cobra.Command, e *installer.InstalledEntry, cacheDir, targetDir string) error {
+	if e.Kind == "Memory" {
+		return reinstallMemoryToTarget(cmd, e, cacheDir, targetDir)
+	}
+	if err := installer.InstallToTarget(cacheDir, targetDir, e.Name); err != nil {
+		return err
+	}
+	if e.Kind == "Workflow" {
+		return reinstallWorkflowExtras(cmd, e, cacheDir, targetDir)
+	}
+	return nil
+}
+
+func reinstallMemoryToTarget(cmd *cobra.Command, e *installer.InstalledEntry, cacheDir, targetDir string) error {
+	m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
+	if err != nil {
+		return fmt.Errorf("load manifest for memory reinstall %s: %w", e.Name, err)
+	}
+	if err := installer.InstallMemoryToTarget(cacheDir, targetDir, e.Name, m.Spec.Files); err != nil {
+		return err
+	}
+	indexEntries := installer.BuildMemoryIndexEntries(cacheDir, e.Name, m.Spec.Files)
+	if len(indexEntries) > 0 {
+		memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
+		if mdErr := installer.AddMemoryIndexEntries(memoryMDPath, e.Name, indexEntries); mdErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md: %v\n", mdErr)
+		}
+	}
+	return nil
+}
+
+func reinstallWorkflowExtras(cmd *cobra.Command, e *installer.InstalledEntry, cacheDir, targetDir string) error {
+	m, err := artifact.Load(filepath.Join(cacheDir, "artifact.json"))
+	if err != nil {
+		return fmt.Errorf("load manifest for workflow symlink %s: %w", e.Name, err)
+	}
+	if err := installer.CreateWorkflowSymlink(targetDir, e.Name, m.Spec.Entrypoint); err != nil {
+		return fmt.Errorf("create workflow symlink for %s: %w", e.Name, err)
+	}
+	if len(m.Dependencies) > 0 {
+		restoreWorkflowPromptDeps(cmd, e, targetDir, m)
+	}
+	return nil
+}
+
+func restoreWorkflowPromptDeps(cmd *cobra.Command, e *installer.InstalledEntry, targetDir string, m *artifact.Manifest) {
+	workflowDepsDir := filepath.Join(targetDir, e.Name, "deps")
+	for _, dep := range m.Dependencies {
+		depName, depVersion := depNameVersion(dep)
+		if depName == "" || depVersion == "" {
+			continue
+		}
+		depCacheDir, found, findErr := installer.FindCacheDir(depName, depVersion)
+		if findErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not locate %s@%s in cache: %v\n", depName, depVersion, findErr)
+			continue
+		}
+		if !found {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s@%s not in cache, skipping embedded dep restore\n", depName, depVersion)
+			continue
+		}
+		depManifest, loadErr := artifact.Load(filepath.Join(depCacheDir, "artifact.json"))
+		if loadErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not load manifest for %s@%s: %v\n", depName, depVersion, loadErr)
+			continue
+		}
+		if depManifest.Kind != "Prompt" {
+			continue
+		}
+		if installErr := installer.InstallToTarget(depCacheDir, workflowDepsDir, depName); installErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not restore embedded dep %s: %v\n", depName, installErr)
+		}
+	}
 }
 
 // refToCacheCandidate derives a cache key (name, version) from a reference when possible.
@@ -230,9 +257,9 @@ func isLocalDirRef(reference string) bool {
 	return err == nil
 }
 
-func runInstall(cmd *cobra.Command, reference, target, projectPath string, force bool) error {
+func runInstall(cmd *cobra.Command, reference, target, projectPath string, force, allExistingProjects bool) error {
 	if isLocalDirRef(reference) {
-		return runLocalInstall(cmd, reference, target, projectPath, force)
+		return runLocalInstall(cmd, reference, target, projectPath, force, allExistingProjects)
 	}
 	if abs, err := filepath.Abs(reference); err == nil {
 		if info, err := os.Stat(abs); err == nil && info.IsDir() {
@@ -335,6 +362,9 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	if err := validateInstallableKind(rootManifest.Kind, target); err != nil {
 		return err
 	}
+	if err := validateMemoryFlags(rootManifest.Kind, projectPath, allExistingProjects); err != nil {
+		return err
+	}
 
 	var resolved []resolver.ResolvedArtifact
 	if len(rootManifest.Dependencies) == 0 {
@@ -364,10 +394,10 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	if isShortRef {
 		rootSourceRef = ""
 	}
-	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, rootSourceRef, force)
+	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, rootSourceRef, force, allExistingProjects)
 }
 
-func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, force bool) error {
+func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, force, allExistingProjects bool) error {
 	absPath, err := filepath.Abs(reference)
 	if err != nil {
 		return fmt.Errorf("resolve local path %q: %w", reference, err)
@@ -384,6 +414,9 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		return fmt.Errorf("validate local files: %w", err)
 	}
 	if err := validateInstallableKind(rootManifest.Kind, target); err != nil {
+		return err
+	}
+	if err := validateMemoryFlags(rootManifest.Kind, projectPath, allExistingProjects); err != nil {
 		return err
 	}
 
@@ -463,7 +496,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 		}
 	}
 
-	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, "", force)
+	return installResolvedArtifacts(cmd, resolved, rootManifest, target, projectPath, "", force, allExistingProjects)
 }
 
 func copyLocalToCache(srcDir, cacheDir string, files []string) error {
@@ -524,7 +557,11 @@ func copyLocalToCache(srcDir, cacheDir string, files []string) error {
 	return nil
 }
 
-func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedArtifact, rootManifest *artifact.Manifest, target, projectPath, rootSourceRef string, force bool) error {
+func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedArtifact, rootManifest *artifact.Manifest, target, projectPath, rootSourceRef string, force, allExistingProjects bool) error {
+	if rootManifest.Kind == "Memory" {
+		return installMemoryArtifacts(cmd, resolved, rootManifest, target, projectPath, rootSourceRef, force, allExistingProjects)
+	}
+
 	normProject := ""
 	if projectPath != "" {
 		abs, err := filepath.Abs(projectPath)
@@ -636,8 +673,128 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 	for _, e := range byKey {
 		newEntries = append(newEntries, *e)
 	}
-	sort.Slice(newEntries, func(i, j int) bool {
-		a, b := newEntries[i], newEntries[j]
+	sortInstalledEntries(newEntries)
+	if err := installer.SaveInstalled(newEntries); err != nil {
+		return fmt.Errorf("save installed: %w", err)
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(resolved), "artifact(s)")
+	return nil
+}
+
+func installMemoryArtifacts(cmd *cobra.Command, _ []resolver.ResolvedArtifact, rootManifest *artifact.Manifest, target, projectPath, rootSourceRef string, _ bool, allExistingProjects bool) error {
+	rootName := rootManifest.Metadata.Name
+	rootVersion := rootManifest.Metadata.Version
+	cacheDir := installer.CacheDir("Memory", rootName, rootVersion)
+
+	memoryTargetDirs, projectPaths, err := resolveMemoryTargets(cmd, projectPath, allExistingProjects)
+	if err != nil {
+		return err
+	}
+	if memoryTargetDirs == nil {
+		return nil
+	}
+
+	for _, td := range memoryTargetDirs {
+		if err := installMemoryToDir(cmd, cacheDir, td, rootName, rootManifest.Spec.Files); err != nil {
+			return err
+		}
+	}
+
+	return saveMemoryDBEntries(rootName, rootVersion, target, rootSourceRef, projectPaths)
+}
+
+func resolveMemoryTargets(cmd *cobra.Command, projectPath string, allExistingProjects bool) (memoryTargetDirs, projectPaths []string, err error) {
+	if allExistingProjects {
+		dirs, err := installer.AllMemoryTargetDirs()
+		if err != nil {
+			return nil, nil, fmt.Errorf("scan existing projects: %w", err)
+		}
+		if len(dirs) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No existing Claude Code project directories found.")
+			return nil, nil, nil
+		}
+		for _, d := range dirs {
+			slug := filepath.Base(filepath.Dir(d))
+			realPath, err := installer.SlugToPath(slug)
+			if err != nil {
+				return nil, nil, fmt.Errorf("reconstruct path for slug %q: %w", slug, err)
+			}
+			projectPaths = append(projectPaths, realPath)
+		}
+		return dirs, projectPaths, nil
+	}
+	td, err := installer.MemoryTargetDir(projectPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve memory target dir: %w", err)
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(projectPath))
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve project path: %w", err)
+	}
+	return []string{td}, []string{abs}, nil
+}
+
+func installMemoryToDir(cmd *cobra.Command, cacheDir, targetDir, artifactName string, specFiles []string) error {
+	if err := installer.InstallMemoryToTarget(cacheDir, targetDir, artifactName, specFiles); err != nil {
+		return fmt.Errorf("install memory to %s: %w", targetDir, err)
+	}
+	indexEntries := installer.BuildMemoryIndexEntries(cacheDir, artifactName, specFiles)
+	if len(indexEntries) > 0 {
+		memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
+		if err := installer.AddMemoryIndexEntries(memoryMDPath, artifactName, indexEntries); err != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md at %s: %v\n", targetDir, err)
+		}
+	}
+	warnings := installer.ValidateMemoryLinks(targetDir, artifactName)
+	for _, w := range warnings {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", w)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Installed memory to %s\n", targetDir)
+	return nil
+}
+
+func saveMemoryDBEntries(rootName, rootVersion, target, rootSourceRef string, projectPaths []string) error {
+	existing, err := installer.LoadInstalled()
+	if err != nil {
+		return fmt.Errorf("load installed: %w", err)
+	}
+	if existing == nil {
+		existing = []installer.InstalledEntry{}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	byKey := make(map[string]*installer.InstalledEntry)
+	for i := range existing {
+		e := &existing[i]
+		key := e.Kind + "|" + e.Name + "|" + e.Target + "|" + e.ProjectPath
+		byKey[key] = e
+	}
+
+	for _, pp := range projectPaths {
+		key := "Memory|" + rootName + "|" + target + "|" + pp
+		byKey[key] = &installer.InstalledEntry{
+			Name:        rootName,
+			Kind:        "Memory",
+			Version:     rootVersion,
+			Registry:    rootSourceRef,
+			Target:      target,
+			ProjectPath: pp,
+			Status:      "ok",
+			UpdatedAt:   now,
+		}
+	}
+
+	newEntries := make([]installer.InstalledEntry, 0, len(byKey))
+	for _, e := range byKey {
+		newEntries = append(newEntries, *e)
+	}
+	sortInstalledEntries(newEntries)
+	return installer.SaveInstalled(newEntries)
+}
+
+func sortInstalledEntries(entries []installer.InstalledEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
 		if a.Name != b.Name {
 			return a.Name < b.Name
 		}
@@ -649,11 +806,6 @@ func installResolvedArtifacts(cmd *cobra.Command, resolved []resolver.ResolvedAr
 		}
 		return a.ProjectPath < b.ProjectPath
 	})
-	if err := installer.SaveInstalled(newEntries); err != nil {
-		return fmt.Errorf("save installed: %w", err)
-	}
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed", len(resolved), "artifact(s)")
-	return nil
 }
 
 func resolvedKind(r resolver.ResolvedArtifact) string {
@@ -708,6 +860,22 @@ func mergeInstalledWith(existing, rootName string) string {
 func validateInstallableKind(kind, target string) error {
 	if kind == "Workflow" && target != "claude" {
 		return fmt.Errorf("workflow artifacts only support --target claude")
+	}
+	if kind == "Memory" && target != "claude" {
+		return fmt.Errorf("memory artifacts only support --target claude")
+	}
+	return nil
+}
+
+func validateMemoryFlags(kind, projectPath string, allExistingProjects bool) error {
+	if kind != "Memory" {
+		return nil
+	}
+	if projectPath == "" && !allExistingProjects {
+		return fmt.Errorf("memory artifacts require --project or --all-existing-projects")
+	}
+	if projectPath != "" && allExistingProjects {
+		return fmt.Errorf("--project and --all-existing-projects are mutually exclusive")
 	}
 	return nil
 }
