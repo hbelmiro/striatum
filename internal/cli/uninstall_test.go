@@ -1212,6 +1212,139 @@ func TestUninstall_Workflow_NoSymlink_StillSucceeds(t *testing.T) {
 	}
 }
 
+func TestUninstall_Memory_RemovesFilesAndIndex(t *testing.T) {
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	slug := installer.ProjectPathToSlug(projectDir)
+	memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+	artDir := filepath.Join(memoryDir, "team-conv")
+	if err := os.MkdirAll(artDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artDir, "fb.md"), []byte("---\nname: fb\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	memoryMD := filepath.Join(memoryDir, "MEMORY.md")
+	if err := os.WriteFile(memoryMD, []byte("- [Fb](team-conv/fb.md) — test\n- [Other](other/x.md) — keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: projectDir, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"uninstall", "--target", "claude", "--project", projectDir, "team-conv"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall memory: %v", err)
+	}
+
+	if _, err := os.Stat(artDir); !os.IsNotExist(err) {
+		t.Error("artifact dir should be removed")
+	}
+
+	data, _ := os.ReadFile(memoryMD)
+	content := string(data)
+	if strings.Contains(content, "team-conv") {
+		t.Error("MEMORY.md should have team-conv entries removed")
+	}
+	if !strings.Contains(content, "Other") {
+		t.Error("MEMORY.md should preserve entries from other artifacts")
+	}
+
+	entries, _ := installer.LoadInstalled()
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty, got %d entries", len(entries))
+	}
+}
+
+func TestUninstall_Memory_AllExistingProjects(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	proj1 := t.TempDir()
+	proj2 := t.TempDir()
+	for _, p := range []string{proj1, proj2} {
+		if err := os.MkdirAll(filepath.Join(p, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, p := range []string{proj1, proj2} {
+		slug := installer.ProjectPathToSlug(p)
+		memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+		artDir := filepath.Join(memoryDir, "team-conv")
+		if err := os.MkdirAll(artDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(artDir, "fb.md"), []byte("content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: proj1, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: proj2, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"uninstall", "--target", "claude", "--all-existing-projects", "team-conv"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("uninstall memory all-existing-projects: %v", err)
+	}
+
+	for _, p := range []string{proj1, proj2} {
+		slug := installer.ProjectPathToSlug(p)
+		artDir := filepath.Join(home, ".claude", "projects", slug, "memory", "team-conv")
+		if _, err := os.Stat(artDir); !os.IsNotExist(err) {
+			t.Errorf("artifact dir should be removed from %s", p)
+		}
+	}
+
+	entries, _ := installer.LoadInstalled()
+	if len(entries) != 0 {
+		t.Errorf("DB should be empty, got %d entries", len(entries))
+	}
+}
+
+func TestUninstall_Memory_WithoutProjectFlag_NotFound(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: projectDir, Status: "ok"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"uninstall", "--target", "claude", "team-conv"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("uninstall memory without --project should not find the entry")
+	}
+	if !strings.Contains(err.Error(), "not installed") {
+		t.Errorf("error should mention not installed: %v", err)
+	}
+}
+
 func TestUninstall_WorkflowOrphan_RemovesSymlink(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STRIATUM_HOME", home)

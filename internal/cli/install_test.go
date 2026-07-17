@@ -2866,3 +2866,457 @@ func TestInstall_ReinstallAll_WorkflowPromptDepNotInCache(t *testing.T) {
 		t.Errorf("workflow should still be installed: %v", err)
 	}
 }
+
+// --- Memory install tests ---
+
+func TestValidateMemoryFlags(t *testing.T) {
+	tests := []struct {
+		name                string
+		kind                string
+		projectPath         string
+		allExistingProjects bool
+		wantErr             string
+	}{
+		{"non-Memory kind bypasses", "Skill", "", false, ""},
+		{"Memory with project", "Memory", "/proj", false, ""},
+		{"Memory with all-existing-projects", "Memory", "", true, ""},
+		{"Memory without either", "Memory", "", false, "require"},
+		{"Memory with both", "Memory", "/proj", true, "mutually exclusive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMemoryFlags(tt.kind, tt.projectPath, tt.allExistingProjects)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateInstallableKind_Memory(t *testing.T) {
+	if err := validateInstallableKind("Memory", "claude"); err != nil {
+		t.Errorf("Memory+claude should be valid: %v", err)
+	}
+	err := validateInstallableKind("Memory", "cursor")
+	if err == nil {
+		t.Fatal("Memory+cursor should be rejected")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude: %v", err)
+	}
+}
+
+func writeMemoryArtifact(t *testing.T, dir, name, version string, files map[string]string) {
+	t.Helper()
+	fileNames := make([]string, 0, len(files))
+	for f := range files {
+		fileNames = append(fileNames, f)
+	}
+	sort.Strings(fileNames)
+	manifest := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Memory",
+		Metadata:   artifact.Metadata{Name: name, Version: version},
+		Spec:       artifact.Spec{Entrypoint: fileNames[0], Files: fileNames},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "artifact.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for f, content := range files {
+		p := filepath.Join(dir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestInstall_Memory_LocalDir_HappyPath(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMemoryArtifact(t, memDir, "team-conv", "1.0.0", map[string]string{
+		"feedback_testing.md": "---\nname: feedback-testing\ndescription: Integration tests must hit a real database\nmetadata:\n  type: feedback\n---\nContent here.",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", "--project", projectDir, memDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install memory: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed memory") {
+		t.Errorf("output should mention installed memory, got %q", out.String())
+	}
+
+	slug := installer.ProjectPathToSlug(projectDir)
+	memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+	installed := filepath.Join(memoryDir, "team-conv", "feedback_testing.md")
+	if _, err := os.Stat(installed); err != nil {
+		t.Errorf("memory file not installed: %v", err)
+	}
+
+	memoryMD := filepath.Join(memoryDir, "MEMORY.md")
+	data, err := os.ReadFile(memoryMD)
+	if err != nil {
+		t.Fatalf("MEMORY.md not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "Feedback Testing") {
+		t.Errorf("MEMORY.md should contain title, got:\n%s", content)
+	}
+	if !strings.Contains(content, "team-conv/feedback_testing.md") {
+		t.Errorf("MEMORY.md should contain relative path, got:\n%s", content)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != "Memory" {
+		t.Errorf("Kind = %q, want Memory", e.Kind)
+	}
+	if e.ProjectPath != projectDir {
+		t.Errorf("ProjectPath = %q, want %q", e.ProjectPath, projectDir)
+	}
+	if e.Target != "claude" {
+		t.Errorf("Target = %q, want claude", e.Target)
+	}
+}
+
+func TestInstall_Memory_CursorTarget_Rejected(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeMemoryArtifact(t, memDir, "test-mem", "1.0.0", map[string]string{
+		"test.md": "---\nname: test\ndescription: test\n---\nContent.",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "cursor", "--project", projectDir, memDir})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Memory + cursor should be rejected")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude: %v", err)
+	}
+}
+
+func TestInstall_Memory_MissingProjectFlag(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeMemoryArtifact(t, memDir, "test-mem", "1.0.0", map[string]string{
+		"test.md": "---\nname: test\ndescription: test\n---\nContent.",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", memDir})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Memory without --project should be rejected")
+	}
+	if !strings.Contains(err.Error(), "--project") {
+		t.Errorf("error should mention --project: %v", err)
+	}
+}
+
+func TestInstall_Memory_BothProjectAndAll_Rejected(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	writeMemoryArtifact(t, memDir, "test-mem", "1.0.0", map[string]string{
+		"test.md": "---\nname: test\ndescription: test\n---\nContent.",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "--project", "/proj", "--all-existing-projects", memDir})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("both --project and --all-existing-projects should be rejected")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should mention mutually exclusive: %v", err)
+	}
+}
+
+func TestInstall_Memory_FileWithNoFrontmatter_StillInstalled(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMemoryArtifact(t, memDir, "plain-mem", "1.0.0", map[string]string{
+		"no-frontmatter.md": "Just plain text, no frontmatter here.",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", "--project", projectDir, memDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install memory: %v", err)
+	}
+
+	slug := installer.ProjectPathToSlug(projectDir)
+	memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+	installed := filepath.Join(memoryDir, "plain-mem", "no-frontmatter.md")
+	if _, err := os.Stat(installed); err != nil {
+		t.Errorf("file should still be installed even without frontmatter: %v", err)
+	}
+
+	memoryMD := filepath.Join(memoryDir, "MEMORY.md")
+	data, _ := os.ReadFile(memoryMD)
+	if strings.Contains(string(data), "plain-mem") {
+		t.Error("files without frontmatter should not be added to MEMORY.md")
+	}
+}
+
+func TestInstall_Memory_ReinstallAll(t *testing.T) {
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := installer.CacheDir("Memory", "team-conv", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Memory",
+		Metadata:   artifact.Metadata{Name: "team-conv", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "fb.md", Files: []string{"fb.md"}},
+	}
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "fb.md"), []byte("---\nname: fb\ndescription: test\n---\nContent."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: projectDir, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+
+	slug := installer.ProjectPathToSlug(projectDir)
+	memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+	installed := filepath.Join(memoryDir, "team-conv", "fb.md")
+	if _, err := os.Stat(installed); err != nil {
+		t.Errorf("memory file not reinstalled: %v", err)
+	}
+
+	memoryMD := filepath.Join(memoryDir, "MEMORY.md")
+	mdData, err := os.ReadFile(memoryMD)
+	if err != nil {
+		t.Fatalf("MEMORY.md not created: %v", err)
+	}
+	if !strings.Contains(string(mdData), "Fb") {
+		t.Errorf("MEMORY.md should contain entry, got:\n%s", string(mdData))
+	}
+}
+
+func TestInstall_Memory_ProjectSubdir_StoresGitRoot(t *testing.T) {
+	memDir := t.TempDir()
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(projectDir, "src", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMemoryArtifact(t, memDir, "team-conv", "1.0.0", map[string]string{
+		"fb.md": "---\nname: fb\ndescription: test\n---\nContent.",
+	})
+
+	root := NewRootCommand()
+	root.SetOut(&strings.Builder{})
+	root.SetArgs([]string{"install", "--target", "claude", "--project", subDir, memDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install memory via subdir: %v", err)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ProjectPath != projectDir {
+		t.Errorf("ProjectPath = %q, want git root %q (not subdir)", entries[0].ProjectPath, projectDir)
+	}
+}
+
+func TestInstall_Memory_ReinstallClearsStaleIndex(t *testing.T) {
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := installer.CacheDir("Memory", "team-conv", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Memory",
+		Metadata:   artifact.Metadata{Name: "team-conv", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "plain.md", Files: []string{"plain.md"}},
+	}
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "plain.md"), []byte("no frontmatter here"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	slug := installer.ProjectPathToSlug(projectDir)
+	memoryDir := filepath.Join(home, ".claude", "projects", slug, "memory")
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	memoryMD := filepath.Join(memoryDir, "MEMORY.md")
+	if err := os.WriteFile(memoryMD, []byte("- [Stale Entry](team-conv/old.md) — should be removed\n- [Other](other/keep.md) — keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installer.SaveInstalled([]installer.InstalledEntry{
+		{Name: "team-conv", Kind: "Memory", Version: "1.0.0", Target: "claude", ProjectPath: projectDir, Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+
+	mdData, err := os.ReadFile(memoryMD)
+	if err != nil {
+		t.Fatalf("read MEMORY.md: %v", err)
+	}
+	content := string(mdData)
+	if strings.Contains(content, "Stale Entry") {
+		t.Errorf("stale index entry should be removed after reinstall, got:\n%s", content)
+	}
+	if strings.Contains(content, "team-conv") {
+		t.Errorf("no team-conv entries expected (file has no frontmatter), got:\n%s", content)
+	}
+	if !strings.Contains(content, "Other") {
+		t.Errorf("entries from other artifacts should be preserved, got:\n%s", content)
+	}
+}
+
+func TestInstall_Memory_AllExistingProjects(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	proj1 := t.TempDir()
+	proj2 := t.TempDir()
+	projectsDir := filepath.Join(home, ".claude", "projects")
+	for _, p := range []string{proj1, proj2} {
+		if err := os.MkdirAll(filepath.Join(p, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		slug := installer.ProjectPathToSlug(p)
+		if err := os.MkdirAll(filepath.Join(projectsDir, slug), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	memDir := t.TempDir()
+	writeMemoryArtifact(t, memDir, "team-conv", "1.0.0", map[string]string{
+		"fb.md": "---\nname: fb\ndescription: test\n---\nContent.",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", "--all-existing-projects", memDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install memory all-existing-projects: %v", err)
+	}
+
+	for _, p := range []string{proj1, proj2} {
+		slug := installer.ProjectPathToSlug(p)
+		installed := filepath.Join(home, ".claude", "projects", slug, "memory", "team-conv", "fb.md")
+		if _, err := os.Stat(installed); err != nil {
+			t.Errorf("memory file not installed to %s: %v", p, err)
+		}
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 DB entries (one per project), got %d", len(entries))
+	}
+}

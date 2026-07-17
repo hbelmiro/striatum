@@ -144,6 +144,13 @@ func TestTargets_UnsupportedKindRejected(t *testing.T) {
 	}
 }
 
+func TestTargets_MemoryKindRejected(t *testing.T) {
+	_, err := Targets("claude", "", "Memory")
+	if err == nil {
+		t.Fatal("Targets(claude, \"\", Memory) want error, got nil")
+	}
+}
+
 func TestInstallToTarget_CreatesCopy(t *testing.T) {
 	cacheDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.json"), []byte("{}"), 0o600); err != nil {

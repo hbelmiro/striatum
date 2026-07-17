@@ -25,6 +25,7 @@ func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 const supportedAPIVersion = "striatum.dev/v1alpha2"
 
 var supportedKinds = map[string]bool{
+	"Memory":   true,
 	"Prompt":   true,
 	"Skill":    true,
 	"Workflow": true,

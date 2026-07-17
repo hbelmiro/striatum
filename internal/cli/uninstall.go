@@ -12,6 +12,7 @@ import (
 
 func newUninstallCmd() *cobra.Command {
 	var target, projectPath, kindFlag string
+	var allExistingProjects bool
 	cmd := &cobra.Command{
 		Use:     "uninstall",
 		Short:   "Remove a previously installed artifact and orphaned dependencies",
@@ -37,13 +38,14 @@ func newUninstallCmd() *cobra.Command {
 				}
 				normProject = abs
 			}
-			return runUninstall(cmd, name, target, normProject, strings.TrimSpace(kindFlag))
+			return runUninstall(cmd, name, target, normProject, strings.TrimSpace(kindFlag), allExistingProjects)
 		},
 	}
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Uninstall from target: cursor or claude (required)")
 	_ = cmd.MarkFlagRequired("target")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path (match project-level install)")
-	cmd.Flags().StringVarP(&kindFlag, "kind", "k", "", "Artifact kind filter (Skill, Prompt, or Workflow); required when multiple kinds share the same name")
+	cmd.Flags().StringVarP(&kindFlag, "kind", "k", "", "Artifact kind filter (Skill, Prompt, Workflow, or Memory); required when multiple kinds share the same name")
+	cmd.Flags().BoolVar(&allExistingProjects, "all-existing-projects", false, "Uninstall Memory artifacts from all existing Claude Code project directories")
 	return cmd
 }
 
@@ -61,7 +63,7 @@ func normalizeUninstallName(arg string) string {
 	return arg
 }
 
-func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter string) error {
+func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter string, allExistingProjects bool) error {
 	if kindFilter != "" && !artifact.IsSupportedKind(kindFilter) {
 		return fmt.Errorf("unsupported kind %q; supported: %s", kindFilter, artifact.SupportedKindsList())
 	}
@@ -81,7 +83,9 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		if e.Target != target {
 			continue
 		}
-		if e.ProjectPath != normProject {
+		if allExistingProjects && e.Kind == "Memory" {
+			// match all project paths
+		} else if e.ProjectPath != normProject {
 			continue
 		}
 		if e.InstalledWith != "" {
@@ -93,11 +97,20 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		toRemove = append(toRemove, e)
 	}
 	if len(toRemove) > 1 {
-		kinds := make([]string, len(toRemove))
-		for i, e := range toRemove {
-			kinds[i] = e.Kind
+		allMemory := true
+		for _, e := range toRemove {
+			if e.Kind != "Memory" {
+				allMemory = false
+				break
+			}
 		}
-		return fmt.Errorf("multiple artifacts named %q installed for target %s (kinds: %s); use --kind to disambiguate", name, target, strings.Join(kinds, ", "))
+		if !allMemory {
+			kinds := make([]string, len(toRemove))
+			for i, e := range toRemove {
+				kinds[i] = e.Kind
+			}
+			return fmt.Errorf("multiple artifacts named %q installed for target %s (kinds: %s); use --kind to disambiguate", name, target, strings.Join(kinds, ", "))
+		}
 	}
 	if len(toRemove) == 0 {
 		seen := make(map[string]bool)
@@ -118,23 +131,12 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		return fmt.Errorf("artifact %q is not installed for target %s", name, target)
 	}
 
-	// Remove target dirs for toRemove
 	for _, e := range toRemove {
-		targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
-		if err != nil {
-			return fmt.Errorf("resolve target for %s: %w", e.Name, err)
-		}
-		if e.Kind == "Workflow" {
-			if err := installer.RemoveWorkflowSymlink(targetDir, e.Name); err != nil {
-				return fmt.Errorf("remove workflow symlink for %s: %w", e.Name, err)
-			}
-		}
-		if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
-			return fmt.Errorf("remove %s from target: %w", e.Name, err)
+		if err := removeInstalledArtifact(cmd, e); err != nil {
+			return err
 		}
 	}
 
-	// Remove toRemove from entries
 	remaining := make([]installer.InstalledEntry, 0, len(entries))
 	for _, e := range entries {
 		keep := true
@@ -149,7 +151,6 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		}
 	}
 
-	// Orphan cleanup: remove entries that are no longer required by any root
 	const maxOrphanPasses = 100
 	for pass := 0; pass < maxOrphanPasses; pass++ {
 		orphans := computeOrphans(remaining)
@@ -157,17 +158,8 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 			break
 		}
 		for _, e := range orphans {
-			targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
-			if err != nil {
-				return fmt.Errorf("resolve target for orphan %s: %w", e.Name, err)
-			}
-			if e.Kind == "Workflow" {
-				if err := installer.RemoveWorkflowSymlink(targetDir, e.Name); err != nil {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove workflow symlink for orphan", e.Name, ":", err)
-				}
-			}
-			if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Name, "from target:", err)
+			if err := removeInstalledArtifact(cmd, e); err != nil {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: could not remove orphan", e.Name, ":", err)
 			}
 		}
 		remaining = removeEntries(remaining, orphans)
@@ -177,6 +169,36 @@ func runUninstall(cmd *cobra.Command, name, target, normProject, kindFilter stri
 		return fmt.Errorf("save installed: %w", err)
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Removed", name)
+	return nil
+}
+
+func removeInstalledArtifact(cmd *cobra.Command, e installer.InstalledEntry) error {
+	if e.Kind == "Memory" {
+		targetDir, err := installer.MemoryTargetDir(e.ProjectPath)
+		if err != nil {
+			return fmt.Errorf("resolve memory target for %s: %w", e.Name, err)
+		}
+		memoryMDPath := filepath.Join(targetDir, "MEMORY.md")
+		if err := installer.RemoveMemoryIndexEntries(memoryMDPath, e.Name); err != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not update MEMORY.md: %v\n", err)
+		}
+		if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
+			return fmt.Errorf("remove %s from target: %w", e.Name, err)
+		}
+		return nil
+	}
+	targetDir, err := installer.Targets(e.Target, e.ProjectPath, e.Kind)
+	if err != nil {
+		return fmt.Errorf("resolve target for %s: %w", e.Name, err)
+	}
+	if e.Kind == "Workflow" {
+		if err := installer.RemoveWorkflowSymlink(targetDir, e.Name); err != nil {
+			return fmt.Errorf("remove workflow symlink for %s: %w", e.Name, err)
+		}
+	}
+	if err := installer.RemoveFromTarget(targetDir, e.Name); err != nil {
+		return fmt.Errorf("remove %s from target: %w", e.Name, err)
+	}
 	return nil
 }
 
