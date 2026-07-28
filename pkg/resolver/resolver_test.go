@@ -476,6 +476,29 @@ func TestResolve_VersionConflict_ParentVersionDisambiguation(t *testing.T) {
 	}
 }
 
+func TestResolve_SynthesizedManifest_VersionConflict(t *testing.T) {
+	// Two manifestless git deps with same derived name but different commits.
+	// Simulates what the resolver sees after Inspect synthesizes manifests:
+	// same name, different version (commit SHA).
+	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
+		"git:https://gh.com/plugins.git@v1#skills/review!aaaa000000000000000000000000000000000000": mf("review", "aaaa000000000000000000000000000000000000"),
+		"git:https://gh.com/plugins.git@v2#skills/review!bbbb000000000000000000000000000000000000": mf("review", "bbbb000000000000000000000000000000000000"),
+	}}
+	depA := &artifact.GitDependency{URL: "https://gh.com/plugins.git", Ref: "v1", Path: "skills/review", Commit: "aaaa000000000000000000000000000000000000"}
+	depB := &artifact.GitDependency{URL: "https://gh.com/plugins.git", Ref: "v2", Path: "skills/review", Commit: "bbbb000000000000000000000000000000000000"}
+	_, err := Resolve(context.Background(), mf("root", "1.0.0", depA, depB), f)
+	if err == nil {
+		t.Fatal("want error for version conflict between two synthesized manifests")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "dependency version conflict") {
+		t.Errorf("error %q should contain 'dependency version conflict'", errMsg)
+	}
+	if !strings.Contains(errMsg, "review") {
+		t.Errorf("error should mention 'review': %v", err)
+	}
+}
+
 func TestResolve_NoConflict_SameVersionDifferentParents(t *testing.T) {
 	f := &mockFetcher{manifests: map[string]*artifact.Manifest{
 		"reg/skills/alpha:1.0.0":  mf("alpha", "1.0.0", ociDep("reg", "skills/shared", "1.0.0")),

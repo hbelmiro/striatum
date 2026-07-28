@@ -5,10 +5,12 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
@@ -30,7 +32,15 @@ func (b *Backend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*ar
 	err := withTree(ctx, dep, func(tree *object.Tree) error {
 		var readErr error
 		m, readErr = readManifestFromTree(tree, dep.Path)
-		return readErr
+		if readErr == nil {
+			return nil
+		}
+		if !errors.Is(readErr, object.ErrFileNotFound) {
+			return readErr
+		}
+		var synthErr error
+		m, synthErr = synthesizeManifest(tree, dep)
+		return synthErr
 	})
 	return m, err
 }
@@ -133,8 +143,16 @@ func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency
 func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {
 	return withTree(ctx, dep, func(tree *object.Tree) error {
 		m, err := readManifestFromTree(tree, dep.Path)
+		synthetic := false
 		if err != nil {
-			return err
+			if !errors.Is(err, object.ErrFileNotFound) {
+				return err
+			}
+			m, err = synthesizeManifest(tree, dep)
+			if err != nil {
+				return err
+			}
+			synthetic = true
 		}
 
 		if err := validateFilePaths(m.Spec.Files); err != nil {
@@ -161,6 +179,9 @@ func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputD
 			}
 		}
 
+		if synthetic {
+			return writeSyntheticManifest(m, filepath.Join(destDir, "artifact.json"))
+		}
 		manifestSrc := "artifact.json"
 		if base != "" {
 			manifestSrc = base + "/" + manifestSrc
@@ -235,6 +256,85 @@ func readManifestFromTree(tree *object.Tree, basePath string) (*artifact.Manifes
 		return nil, fmt.Errorf("parse artifact.json: %w", err)
 	}
 	return &m, nil
+}
+
+func synthesizeManifest(tree *object.Tree, dep *artifact.GitDependency) (*artifact.Manifest, error) {
+	if dep.Kind == "" {
+		return nil, fmt.Errorf("manifestless git dependency: kind is required when no artifact.json is present")
+	}
+	if dep.Entrypoint == "" {
+		return nil, fmt.Errorf("manifestless git dependency: entrypoint is required when no artifact.json is present")
+	}
+	if dep.Commit == "" {
+		return nil, fmt.Errorf("manifestless git dependency: commit is required when no artifact.json is present")
+	}
+	name := dep.Name
+	if name == "" {
+		if dep.Path != "" {
+			name = filepath.Base(dep.Path)
+		} else {
+			return nil, fmt.Errorf("manifestless git dependency: name is required when path is not set")
+		}
+	}
+
+	var files []string
+	if dep.Files != nil {
+		files = slices.Clone(dep.Files)
+	} else {
+		var err error
+		files, err = collectFilesFromTree(tree, dep.Path)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			return nil, fmt.Errorf("no files found under path %q", dep.Path)
+		}
+	}
+
+	if !slices.Contains(files, dep.Entrypoint) {
+		return nil, fmt.Errorf("manifestless git dependency: entrypoint %q not found among files", dep.Entrypoint)
+	}
+
+	return &artifact.Manifest{
+		APIVersion: artifact.SupportedAPIVersion,
+		Kind:       dep.Kind,
+		Metadata: artifact.Metadata{
+			Name:    name,
+			Version: dep.Commit,
+		},
+		Spec: artifact.Spec{
+			Entrypoint: dep.Entrypoint,
+			Files:      files,
+		},
+	}, nil
+}
+
+func collectFilesFromTree(tree *object.Tree, basePath string) ([]string, error) {
+	subtree := tree
+	if basePath != "" {
+		var err error
+		subtree, err = tree.Tree(basePath)
+		if err != nil {
+			return nil, fmt.Errorf("path %q: %w", basePath, err)
+		}
+	}
+	var files []string
+	err := subtree.Files().ForEach(func(f *object.File) error {
+		files = append(files, f.Name)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enumerate files: %w", err)
+	}
+	return files, nil
+}
+
+func writeSyntheticManifest(m *artifact.Manifest, path string) error {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("marshal synthetic artifact.json: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // validateFilePaths rejects paths that would escape the destination directory.
