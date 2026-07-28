@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -22,7 +23,7 @@ func IsValidDigest(s string) bool { return digestPattern.MatchString(s) }
 // IsValidCommitSHA reports whether s is a valid full-length Git commit SHA (40 lowercase hex chars).
 func IsValidCommitSHA(s string) bool { return commitPattern.MatchString(s) }
 
-const supportedAPIVersion = "striatum.dev/v1alpha2"
+const SupportedAPIVersion = "striatum.dev/v1alpha2"
 
 var supportedKinds = map[string]bool{
 	"Memory":   true,
@@ -116,10 +117,14 @@ func (d *OCIDependency) MarshalJSON() ([]byte, error) {
 
 // GitDependency is a dependency hosted in a Git repository.
 type GitDependency struct {
-	URL    string `json:"url"`
-	Ref    string `json:"ref"`
-	Path   string `json:"path,omitempty"`
-	Commit string `json:"commit,omitempty"`
+	URL        string   `json:"url"`
+	Ref        string   `json:"ref"`
+	Path       string   `json:"path,omitempty"`
+	Commit     string   `json:"commit,omitempty"`
+	Files      []string `json:"files,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Kind       string   `json:"kind,omitempty"`
+	Entrypoint string   `json:"entrypoint,omitempty"`
 }
 
 func (d *GitDependency) Source() string { return "git" }
@@ -145,22 +150,101 @@ func (d *GitDependency) Validate() error {
 	if d.Commit != "" && !IsValidCommitSHA(d.Commit) {
 		return fmt.Errorf("git dependency: commit must be a 40-character lowercase hex SHA, got %q", d.Commit)
 	}
+	if d.Files != nil {
+		if err := validateGitFiles(d.Files); err != nil {
+			return err
+		}
+	}
+	if d.Name != "" {
+		if err := validateGitName(d.Name); err != nil {
+			return err
+		}
+	}
+	if d.Kind != "" && !IsSupportedKind(d.Kind) {
+		return fmt.Errorf("git dependency: unsupported kind %q; supported: %s", d.Kind, supportedKindsList())
+	}
+	if err := validateGitEntrypoint(d.Entrypoint, d.Files); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateGitFiles(files []string) error {
+	if len(files) == 0 {
+		return errors.New("git dependency: files must not be an empty list (omit the field or provide entries)")
+	}
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		if f == "" {
+			return errors.New("git dependency: files must not contain empty strings")
+		}
+		if strings.Contains(f, "..") {
+			return fmt.Errorf("git dependency: files entry %q contains path traversal", f)
+		}
+		if filepath.IsAbs(f) {
+			return fmt.Errorf("git dependency: files entry %q is an absolute path", f)
+		}
+		if seen[f] {
+			return fmt.Errorf("git dependency: duplicate files entry %q", f)
+		}
+		seen[f] = true
+	}
+	return nil
+}
+
+func validateGitName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("git dependency: name must not be whitespace-only")
+	}
+	if name != strings.TrimSpace(name) {
+		return errors.New("git dependency: name must not have leading or trailing whitespace")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("git dependency: name %q must not contain slashes", name)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("git dependency: name %q is not allowed", name)
+	}
+	return nil
+}
+
+func validateGitEntrypoint(entrypoint string, files []string) error {
+	if entrypoint == "" {
+		return nil
+	}
+	if strings.Contains(entrypoint, "..") {
+		return fmt.Errorf("git dependency: entrypoint %q contains path traversal", entrypoint)
+	}
+	if filepath.IsAbs(entrypoint) {
+		return fmt.Errorf("git dependency: entrypoint %q is an absolute path", entrypoint)
+	}
+	if files != nil && !slices.Contains(files, entrypoint) {
+		return fmt.Errorf("git dependency: entrypoint %q must be listed in files", entrypoint)
+	}
 	return nil
 }
 
 func (d *GitDependency) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Source string `json:"source"`
-		URL    string `json:"url"`
-		Ref    string `json:"ref"`
-		Path   string `json:"path,omitempty"`
-		Commit string `json:"commit,omitempty"`
+		Source     string   `json:"source"`
+		URL       string   `json:"url"`
+		Ref       string   `json:"ref"`
+		Path      string   `json:"path,omitempty"`
+		Commit    string   `json:"commit,omitempty"`
+		Files     []string `json:"files,omitempty"`
+		Name      string   `json:"name,omitempty"`
+		Kind      string   `json:"kind,omitempty"`
+		Entrypoint string  `json:"entrypoint,omitempty"`
 	}{
-		Source: "git",
-		URL:    d.URL,
-		Ref:    d.Ref,
-		Path:   d.Path,
-		Commit: d.Commit,
+		Source:     "git",
+		URL:        d.URL,
+		Ref:        d.Ref,
+		Path:       d.Path,
+		Commit:     d.Commit,
+		Files:      d.Files,
+		Name:       d.Name,
+		Kind:       d.Kind,
+		Entrypoint: d.Entrypoint,
 	})
 }
 
@@ -285,8 +369,8 @@ func Validate(m *Manifest) error {
 	if m == nil {
 		return errors.New("manifest is nil")
 	}
-	if m.APIVersion != supportedAPIVersion {
-		return fmt.Errorf("unsupported apiVersion %q, want %s", m.APIVersion, supportedAPIVersion)
+	if m.APIVersion != SupportedAPIVersion {
+		return fmt.Errorf("unsupported apiVersion %q, want %s", m.APIVersion, SupportedAPIVersion)
 	}
 	if !supportedKinds[m.Kind] {
 		return fmt.Errorf("unsupported kind %q; supported: %s", m.Kind, supportedKindsList())

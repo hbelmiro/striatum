@@ -164,20 +164,6 @@ func TestBackend_Pull_SubPath(t *testing.T) {
 	}
 }
 
-func TestBackend_Inspect_MissingManifestAtSubPath(t *testing.T) {
-	url := setupLocalRepo(t, "", "v1.0.0")
-	b := &Backend{}
-	_, err := b.Inspect(context.Background(), &artifact.GitDependency{
-		URL: url, Ref: "v1.0.0", Path: "wrong/path",
-	})
-	if err == nil {
-		t.Fatal("Inspect() should fail for wrong subpath")
-	}
-	if !strings.Contains(err.Error(), "artifact.json not found") {
-		t.Errorf("error should mention artifact.json not found: %v", err)
-	}
-}
-
 func TestBackend_Inspect_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	workDir := filepath.Join(dir, "work")

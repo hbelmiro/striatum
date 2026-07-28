@@ -1132,6 +1132,346 @@ func TestValidateLocal_StatError_NonNotExist(t *testing.T) {
 	}
 }
 
+// --- GitDependency new fields ---
+
+func TestGitDependency_Validate_FilesField(t *testing.T) {
+	base := func() *GitDependency {
+		return &GitDependency{URL: "https://example.com/r.git", Ref: "v1"}
+	}
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{"nil files", base(), ""},
+		{"valid files", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"SKILL.md"}}, ""},
+		{"multiple valid files", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"SKILL.md", "lib/helper.md"}}, ""},
+		{"empty slice", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{}}, "empty list"},
+		{"path traversal", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"../evil"}}, "path traversal"},
+		{"absolute path", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"/etc/passwd"}}, "absolute path"},
+		{"empty string entry", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"SKILL.md", ""}}, "empty"},
+		{"duplicate entries", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"SKILL.md", "SKILL.md"}}, "duplicate"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Validate_NameField(t *testing.T) {
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{"empty name", &GitDependency{URL: "https://example.com/r.git", Ref: "v1"}, ""},
+		{"clean name", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "my-skill"}, ""},
+		{"name with dot", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "my.skill"}, ""},
+		{"forward slash", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "a/b"}, "slashes"},
+		{"backslash", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "a\\b"}, "slashes"},
+		{"double dot", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: ".."}, "not allowed"},
+		{"single dot", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "."}, "not allowed"},
+		{"leading whitespace", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: " leading"}, "whitespace"},
+		{"trailing whitespace", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "trailing "}, "whitespace"},
+		{"whitespace only", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Name: "   "}, "whitespace"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Validate_KindField(t *testing.T) {
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{"empty kind", &GitDependency{URL: "https://example.com/r.git", Ref: "v1"}, ""},
+		{"valid Skill", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Kind: "Skill"}, ""},
+		{"valid Prompt", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Kind: "Prompt"}, ""},
+		{"valid Workflow", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Kind: "Workflow"}, ""},
+		{"invalid kind", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Kind: "Widget"}, "unsupported kind"},
+		{"wrong case", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Kind: "skill"}, "unsupported kind"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Validate_EntrypointField(t *testing.T) {
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{"empty entrypoint", &GitDependency{URL: "https://example.com/r.git", Ref: "v1"}, ""},
+		{"clean entrypoint", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Entrypoint: "SKILL.md"}, ""},
+		{"subdir entrypoint", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Entrypoint: "lib/main.md"}, ""},
+		{"path traversal", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Entrypoint: "../evil.md"}, "path traversal"},
+		{"absolute path", &GitDependency{URL: "https://example.com/r.git", Ref: "v1", Entrypoint: "/etc/passwd"}, "absolute path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_Validate_EntrypointInFiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		dep     *GitDependency
+		wantErr string
+	}{
+		{
+			"entrypoint in files",
+			&GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"SKILL.md", "lib.md"}, Entrypoint: "SKILL.md"},
+			"",
+		},
+		{
+			"entrypoint not in files",
+			&GitDependency{URL: "https://example.com/r.git", Ref: "v1", Files: []string{"other.md"}, Entrypoint: "SKILL.md"},
+			"entrypoint",
+		},
+		{
+			"entrypoint set files nil",
+			&GitDependency{URL: "https://example.com/r.git", Ref: "v1", Entrypoint: "SKILL.md"},
+			"",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dep.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate() err = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGitDependency_CanonicalRef_IgnoresNewFields(t *testing.T) {
+	base := &GitDependency{
+		URL:    "https://example.com/r.git",
+		Ref:    "v1.0.0",
+		Path:   "sub",
+		Commit: "abcdef0123456789abcdef0123456789abcdef01",
+	}
+	withFields := &GitDependency{
+		URL:        "https://example.com/r.git",
+		Ref:        "v1.0.0",
+		Path:       "sub",
+		Commit:     "abcdef0123456789abcdef0123456789abcdef01",
+		Files:      []string{"SKILL.md"},
+		Name:       "custom-name",
+		Kind:       "Skill",
+		Entrypoint: "SKILL.md",
+	}
+	if base.CanonicalRef() != withFields.CanonicalRef() {
+		t.Errorf("CanonicalRef should ignore new fields:\n  base:       %q\n  withFields: %q", base.CanonicalRef(), withFields.CanonicalRef())
+	}
+}
+
+func TestGitDependency_MarshalJSON_IncludesNewFields(t *testing.T) {
+	d := &GitDependency{
+		URL:        "https://example.com/r.git",
+		Ref:        "v1",
+		Files:      []string{"SKILL.md"},
+		Name:       "my-skill",
+		Kind:       "Skill",
+		Entrypoint: "SKILL.md",
+	}
+	data, err := json.Marshal(d)
+	if err != nil {
+		t.Fatalf("MarshalJSON() err = %v", err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"files"`) {
+		t.Errorf("marshaled JSON should contain files: %s", s)
+	}
+	if !strings.Contains(s, `"name"`) {
+		t.Errorf("marshaled JSON should contain name: %s", s)
+	}
+	if !strings.Contains(s, `"kind"`) {
+		t.Errorf("marshaled JSON should contain kind: %s", s)
+	}
+	if !strings.Contains(s, `"entrypoint"`) {
+		t.Errorf("marshaled JSON should contain entrypoint: %s", s)
+	}
+}
+
+func TestGitDependency_MarshalJSON_OmitsEmptyNewFields(t *testing.T) {
+	d := &GitDependency{
+		URL: "https://example.com/r.git",
+		Ref: "v1",
+	}
+	data, err := json.Marshal(d)
+	if err != nil {
+		t.Fatalf("MarshalJSON() err = %v", err)
+	}
+	s := string(data)
+	if strings.Contains(s, `"files"`) {
+		t.Errorf("marshaled JSON should omit empty files: %s", s)
+	}
+	if strings.Contains(s, `"name"`) {
+		t.Errorf("marshaled JSON should omit empty name: %s", s)
+	}
+	if strings.Contains(s, `"kind"`) {
+		t.Errorf("marshaled JSON should omit empty kind: %s", s)
+	}
+	if strings.Contains(s, `"entrypoint"`) {
+		t.Errorf("marshaled JSON should omit empty entrypoint: %s", s)
+	}
+}
+
+func TestManifest_UnmarshalJSON_GitDep_WithNewFields(t *testing.T) {
+	data := `{
+		"apiVersion": "striatum.dev/v1alpha2",
+		"kind": "Skill",
+		"metadata": {"name": "x", "version": "1.0.0"},
+		"spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]},
+		"dependencies": [
+			{
+				"source": "git",
+				"url": "https://example.com/r.git",
+				"ref": "main",
+				"path": "skills/review",
+				"commit": "abcdef0123456789abcdef0123456789abcdef01",
+				"files": ["SKILL.md", "lib.md"],
+				"name": "my-review",
+				"kind": "Skill",
+				"entrypoint": "SKILL.md"
+			}
+		]
+	}`
+	var m Manifest
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		t.Fatalf("UnmarshalJSON() err = %v", err)
+	}
+	d, ok := m.Dependencies[0].(*GitDependency)
+	if !ok {
+		t.Fatalf("type = %T, want *GitDependency", m.Dependencies[0])
+	}
+	if len(d.Files) != 2 || d.Files[0] != "SKILL.md" || d.Files[1] != "lib.md" {
+		t.Errorf("Files = %v", d.Files)
+	}
+	if d.Name != "my-review" {
+		t.Errorf("Name = %q", d.Name)
+	}
+	if d.Kind != "Skill" {
+		t.Errorf("Kind = %q", d.Kind)
+	}
+	if d.Entrypoint != "SKILL.md" {
+		t.Errorf("Entrypoint = %q", d.Entrypoint)
+	}
+}
+
+func TestManifest_Roundtrip_WithNewFields(t *testing.T) {
+	original := Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   Metadata{Name: "test", Version: "1.0.0"},
+		Spec:       Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []Dependency{
+			&GitDependency{
+				URL:        "https://example.com/r.git",
+				Ref:        "main",
+				Path:       "skills/review",
+				Commit:     "abcdef0123456789abcdef0123456789abcdef01",
+				Files:      []string{"SKILL.md", "lib.md"},
+				Name:       "review-skill",
+				Kind:       "Skill",
+				Entrypoint: "SKILL.md",
+			},
+		},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal err = %v", err)
+	}
+	var decoded Manifest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal err = %v", err)
+	}
+	d, ok := decoded.Dependencies[0].(*GitDependency)
+	if !ok {
+		t.Fatalf("type = %T", decoded.Dependencies[0])
+	}
+	if len(d.Files) != 2 || d.Files[0] != "SKILL.md" || d.Files[1] != "lib.md" {
+		t.Errorf("Files = %v", d.Files)
+	}
+	if d.Name != "review-skill" {
+		t.Errorf("Name = %q", d.Name)
+	}
+	if d.Kind != "Skill" {
+		t.Errorf("Kind = %q", d.Kind)
+	}
+	if d.Entrypoint != "SKILL.md" {
+		t.Errorf("Entrypoint = %q", d.Entrypoint)
+	}
+}
+
 func TestValidateLocal_InvalidPath_Absolute(t *testing.T) {
 	dir := t.TempDir()
 	absPath := filepath.Join(dir, "SKILL.md")
