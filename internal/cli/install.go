@@ -25,7 +25,7 @@ func newInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Pull and install an artifact into the appropriate target directory",
-		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor or claude). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
+		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor, claude, or codex). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
 		Example: "  striatum install --target claude localhost:5000/artifacts/my-skill:1.0.0\n  striatum install --target claude oci:/path/to/layout:my-skill:1.0.0\n  striatum install --target claude .",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,7 +44,7 @@ func newInstallCmd() *cobra.Command {
 			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force, allExistingProjects)
 		},
 	}
-	cmd.Flags().StringVarP(&target, "target", "t", "", "Install target: cursor or claude (required)")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Install target: cursor, claude, or codex (required)")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path for project-level install (e.g. .)")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite conflicting versions")
 	cmd.Flags().BoolVar(&reinstallAll, "reinstall-all", false, "Replay all entries from install DB")

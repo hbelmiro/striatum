@@ -26,7 +26,7 @@ func newListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&installed, "installed", false, "List installed artifacts instead of cache")
-	cmd.Flags().StringVarP(&target, "target", "t", "", "Filter installed list by target (cursor or claude); only with --installed")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Filter installed list by target (cursor, claude, or codex); only with --installed")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Filter installed list by project path; only with --installed")
 	return cmd
 }
