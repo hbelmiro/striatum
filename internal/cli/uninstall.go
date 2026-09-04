@@ -16,7 +16,7 @@ func newUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "uninstall",
 		Short:   "Remove a previously installed artifact and orphaned dependencies",
-		Long:    "Removes the named artifact from the given --target (cursor or claude) and removes any dependencies that are no longer required by other installed artifacts.",
+		Long:    "Removes the named artifact from the given --target (cursor, claude, or codex) and removes any dependencies that are no longer required by other installed artifacts.",
 		Example: "  striatum uninstall --target claude my-skill\n  striatum uninstall --target claude --kind Workflow my-workflow",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,7 +41,7 @@ func newUninstallCmd() *cobra.Command {
 			return runUninstall(cmd, name, target, normProject, strings.TrimSpace(kindFlag), allExistingProjects)
 		},
 	}
-	cmd.Flags().StringVarP(&target, "target", "t", "", "Uninstall from target: cursor or claude (required)")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Uninstall from target: cursor, claude, or codex (required)")
 	_ = cmd.MarkFlagRequired("target")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path (match project-level install)")
 	cmd.Flags().StringVarP(&kindFlag, "kind", "k", "", "Artifact kind filter (Skill, Prompt, Workflow, or Memory); required when multiple kinds share the same name")

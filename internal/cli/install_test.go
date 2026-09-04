@@ -2915,6 +2915,29 @@ func TestValidateInstallableKind_Memory(t *testing.T) {
 	}
 }
 
+func TestValidateInstallableKind_Codex(t *testing.T) {
+	if err := validateInstallableKind("Skill", "codex"); err != nil {
+		t.Errorf("Skill+codex should be valid: %v", err)
+	}
+	if err := validateInstallableKind("Prompt", "codex"); err != nil {
+		t.Errorf("Prompt+codex should be valid: %v", err)
+	}
+	errWf := validateInstallableKind("Workflow", "codex")
+	if errWf == nil {
+		t.Fatal("Workflow+codex should be rejected")
+	}
+	if !strings.Contains(errWf.Error(), "claude") {
+		t.Errorf("Workflow error should mention claude: %v", errWf)
+	}
+	errMem := validateInstallableKind("Memory", "codex")
+	if errMem == nil {
+		t.Fatal("Memory+codex should be rejected")
+	}
+	if !strings.Contains(errMem.Error(), "claude") {
+		t.Errorf("Memory error should mention claude: %v", errMem)
+	}
+}
+
 func writeMemoryArtifact(t *testing.T, dir, name, version string, files map[string]string) {
 	t.Helper()
 	fileNames := make([]string, 0, len(files))

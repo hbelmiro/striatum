@@ -53,7 +53,7 @@ func TestUninstall_InvalidTarget_Errors(t *testing.T) {
 	if err == nil {
 		t.Error("uninstall --target all: expected error")
 	}
-	if !strings.Contains(err.Error(), "must be cursor or claude") {
+	if !strings.Contains(err.Error(), "must be cursor, claude, or codex") {
 		t.Errorf("error should mention valid targets: %v", err)
 	}
 }

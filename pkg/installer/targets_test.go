@@ -127,6 +127,66 @@ func TestTargets_WorkflowClaudeWithProject(t *testing.T) {
 	}
 }
 
+func TestTargets_CodexEmptyProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Targets("codex", "", "Skill")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(home, ".codex", "skills")
+	if got != want {
+		t.Errorf("Targets(codex, \"\", Skill) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_CodexWithProject(t *testing.T) {
+	proj := t.TempDir()
+	got, err := Targets("codex", proj, "Skill")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(proj, ".codex", "skills")
+	if got != want {
+		t.Errorf("Targets(codex, proj, Skill) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_CodexPromptEmptyProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Targets("codex", "", "Prompt")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(home, ".codex", "prompts")
+	if got != want {
+		t.Errorf("Targets(codex, \"\", Prompt) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_CodexPromptWithProject(t *testing.T) {
+	proj := t.TempDir()
+	got, err := Targets("codex", proj, "Prompt")
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
+	}
+	want := filepath.Join(proj, ".codex", "prompts")
+	if got != want {
+		t.Errorf("Targets(codex, proj, Prompt) = %q, want %q", got, want)
+	}
+}
+
+func TestTargets_WorkflowCodexRejected(t *testing.T) {
+	_, err := Targets("codex", "", "Workflow")
+	if err == nil {
+		t.Fatal("Targets(codex, \"\", Workflow) want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error should mention claude, got %q", err.Error())
+	}
+}
+
 func TestTargets_WorkflowCursorRejected(t *testing.T) {
 	_, err := Targets("cursor", "", "Workflow")
 	if err == nil {

@@ -14,7 +14,7 @@ var kindToSubdir = map[string]string{
 }
 
 // Targets returns the absolute path of the install directory for the given target, project path, and artifact kind.
-// target must be "cursor" or "claude". kind selects the subdirectory via kindToSubdir.
+// target must be "cursor", "claude", or "codex". kind selects the subdirectory via kindToSubdir.
 // Workflow artifacts only support target "claude".
 // projectPath should already be absolute when provided; if relative, it is resolved via filepath.Abs.
 // When empty, the user's home directory is used.
@@ -25,10 +25,10 @@ func Targets(target, projectPath, kind string) (string, error) {
 	}
 
 	switch target {
-	case "cursor", "claude":
+	case "cursor", "claude", "codex":
 		// ok
 	default:
-		return "", errors.New("target must be cursor or claude")
+		return "", errors.New("target must be cursor, claude, or codex")
 	}
 
 	if kind == "Workflow" && target != "claude" {

@@ -16,9 +16,11 @@ func TestValidateTarget(t *testing.T) {
 		{"claude", "claude", "claude", ""},
 		{"cursor with spaces", "  cursor  ", "cursor", ""},
 		{"claude with spaces", "  claude  ", "claude", ""},
-		{"invalid target", "vscode", "", "must be cursor or claude"},
-		{"empty string", "", "", "must be cursor or claude"},
-		{"whitespace only", "   ", "", "must be cursor or claude"},
+		{"codex", "codex", "codex", ""},
+		{"codex with spaces", "  codex  ", "codex", ""},
+		{"invalid target", "vscode", "", "must be cursor, claude, or codex"},
+		{"empty string", "", "", "must be cursor, claude, or codex"},
+		{"whitespace only", "   ", "", "must be cursor, claude, or codex"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,7 +51,7 @@ func TestInstall_ShortTargetFlag(t *testing.T) {
 	if err == nil {
 		t.Error("install -t invalid: expected error")
 	}
-	if err != nil && !strings.Contains(err.Error(), "must be cursor or claude") {
+	if err != nil && !strings.Contains(err.Error(), "must be cursor, claude, or codex") {
 		t.Errorf("error should mention valid targets: %v", err)
 	}
 }
@@ -64,7 +66,7 @@ func TestUninstall_ShortTargetFlag(t *testing.T) {
 	if err == nil {
 		t.Error("uninstall -t invalid: expected error")
 	}
-	if err != nil && !strings.Contains(err.Error(), "must be cursor or claude") {
+	if err != nil && !strings.Contains(err.Error(), "must be cursor, claude, or codex") {
 		t.Errorf("error should mention valid targets: %v", err)
 	}
 }
@@ -79,7 +81,7 @@ func TestList_ShortTargetFlag(t *testing.T) {
 	if err == nil {
 		t.Error("list -t invalid: expected error")
 	}
-	if err != nil && !strings.Contains(err.Error(), "must be cursor or claude") {
+	if err != nil && !strings.Contains(err.Error(), "must be cursor, claude, or codex") {
 		t.Errorf("error should mention valid targets: %v", err)
 	}
 }

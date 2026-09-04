@@ -25,7 +25,7 @@ With arguments, updates only the named artifacts.`,
 		},
 	}
 	cmd.Flags().Bool("check", false, "List outdated artifacts without installing")
-	cmd.Flags().StringP("target", "t", "", "Filter by install target (cursor or claude)")
+	cmd.Flags().StringP("target", "t", "", "Filter by install target (cursor, claude, or codex)")
 	cmd.Flags().String("project", "", "Filter by project path")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	return cmd
