@@ -553,3 +553,114 @@ func TestRouter_Pull_UnsupportedLocator(t *testing.T) {
 		t.Errorf("err = %v, want 'unsupported locator'", err)
 	}
 }
+
+func TestCanonicalRef_GitKind_Roundtrip(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  *artifact.GitDependency
+		want string
+	}{
+		{"kind only", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "main", Kind: "Skill"}, "git:https://example.com/r.git@main?kind=Skill"},
+		{"kind with path", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "main", Path: "sub", Kind: "Prompt"}, "git:https://example.com/r.git@main#sub?kind=Prompt"},
+		{"kind with path and commit", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "main", Path: "sub", Commit: "abcdef0123456789abcdef0123456789abcdef01", Kind: "Workflow"}, "git:https://example.com/r.git@main#sub!abcdef0123456789abcdef0123456789abcdef01?kind=Workflow"},
+		{"no kind unchanged", &artifact.GitDependency{URL: "https://example.com/r.git", Ref: "main"}, "git:https://example.com/r.git@main"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canonical := tt.dep.CanonicalRef()
+			if canonical != tt.want {
+				t.Fatalf("CanonicalRef() = %q, want %q", canonical, tt.want)
+			}
+			parsed, err := ParseReference(canonical)
+			if err != nil {
+				t.Fatalf("ParseReference(%q) err = %v", canonical, err)
+			}
+			gitDep, ok := parsed.(*artifact.GitDependency)
+			if !ok {
+				t.Fatalf("type = %T, want *artifact.GitDependency", parsed)
+			}
+			if gitDep.Kind != tt.dep.Kind {
+				t.Errorf("Kind = %q, want %q", gitDep.Kind, tt.dep.Kind)
+			}
+			if parsed.CanonicalRef() != canonical {
+				t.Errorf("roundtrip failed: %q -> ParseReference -> %q", canonical, parsed.CanonicalRef())
+			}
+		})
+	}
+}
+
+func TestParseReference_GitKind(t *testing.T) {
+	ref := "git:https://example.com/r.git@main#sub?kind=Prompt"
+	loc, err := ParseReference(ref)
+	if err != nil {
+		t.Fatalf("ParseReference(%q) err = %v", ref, err)
+	}
+	dep, ok := loc.(*artifact.GitDependency)
+	if !ok {
+		t.Fatalf("type = %T, want *artifact.GitDependency", loc)
+	}
+	if dep.Kind != "Prompt" {
+		t.Errorf("Kind = %q, want Prompt", dep.Kind)
+	}
+	if dep.Path != "sub" {
+		t.Errorf("Path = %q, want sub", dep.Path)
+	}
+	if dep.Ref != "main" {
+		t.Errorf("Ref = %q, want main", dep.Ref)
+	}
+}
+
+func TestParseReference_GitKind_Errors(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{"empty kind", "git:https://example.com/r.git@main?kind=", "empty kind"},
+		{"kind with slash", "git:https://example.com/r.git@main?kind=Sk/ill", "kind"},
+		{"question mark before hash", "git:https://example.com/r.git@main?kind=Skill#sub", "kind"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseReference(tt.ref)
+			if err == nil {
+				t.Fatalf("ParseReference(%q) should error", tt.ref)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error should mention %q: %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeGitHubURL(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{"tree path", "https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff", "git:https://github.com/mattpocock/skills.git@main#skills/productivity/handoff", true},
+		{"blob file", "https://github.com/mattpocock/skills/blob/main/skills/productivity/handoff/SKILL.md", "git:https://github.com/mattpocock/skills.git@main#skills/productivity/handoff", true},
+		{"blob file at repo root", "https://github.com/org/repo/blob/main/SKILL.md", "git:https://github.com/org/repo.git@main", true},
+		{"tree at repo root", "https://github.com/org/repo/tree/main", "git:https://github.com/org/repo.git@main", true},
+		{"http scheme", "http://github.com/org/repo/tree/main/sub", "git:http://github.com/org/repo.git@main#sub", true},
+		{"trailing slash", "https://github.com/org/repo/tree/main/sub/", "git:https://github.com/org/repo.git@main#sub", true},
+		{"not a web url", "git:https://github.com/org/repo.git@main#sub", "", false},
+		{"github repo without tree", "https://github.com/org/repo", "", false},
+		{"other host", "https://gitlab.com/org/repo/tree/main/sub", "", false},
+		{"missing ref", "https://github.com/org/repo/tree/", "", false},
+		{"missing path after blob", "https://github.com/org/repo/blob/main", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := NormalizeGitHubURL(tt.in)
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v", ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeGitHubURL(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

@@ -29,7 +29,7 @@ type Backend struct{}
 
 func (b *Backend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*artifact.Manifest, error) {
 	var m *artifact.Manifest
-	err := withTree(ctx, dep, func(tree *object.Tree) error {
+	err := withTree(ctx, dep, func(tree *object.Tree, commit string) error {
 		var readErr error
 		m, readErr = readManifestFromTree(tree, dep.Path)
 		if readErr == nil {
@@ -39,7 +39,7 @@ func (b *Backend) Inspect(ctx context.Context, dep *artifact.GitDependency) (*ar
 			return readErr
 		}
 		var synthErr error
-		m, synthErr = synthesizeManifest(tree, dep)
+		m, synthErr = synthesizeManifest(tree, dep, commit)
 		return synthErr
 	})
 	return m, err
@@ -141,14 +141,14 @@ func (b *Backend) ResolveCommit(ctx context.Context, dep *artifact.GitDependency
 }
 
 func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputDir string) error {
-	return withTree(ctx, dep, func(tree *object.Tree) error {
+	return withTree(ctx, dep, func(tree *object.Tree, commit string) error {
 		m, err := readManifestFromTree(tree, dep.Path)
 		synthetic := false
 		if err != nil {
 			if !errors.Is(err, object.ErrFileNotFound) {
 				return err
 			}
-			m, err = synthesizeManifest(tree, dep)
+			m, err = synthesizeManifest(tree, dep, commit)
 			if err != nil {
 				return err
 			}
@@ -190,9 +190,9 @@ func (b *Backend) Pull(ctx context.Context, dep *artifact.GitDependency, outputD
 	})
 }
 
-// withTree clones the repo, resolves the ref, and calls fn with the resulting tree.
-// The cloned repo is cleaned up after fn returns.
-func withTree(ctx context.Context, dep *artifact.GitDependency, fn func(*object.Tree) error) error {
+// withTree clones the repo, resolves the ref, and calls fn with the resulting
+// tree and the resolved commit SHA. The cloned repo is cleaned up after fn returns.
+func withTree(ctx context.Context, dep *artifact.GitDependency, fn func(*object.Tree, string) error) error {
 	tmpDir, err := os.MkdirTemp("", "striatum-git-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -227,7 +227,7 @@ func withTree(ctx context.Context, dep *artifact.GitDependency, fn func(*object.
 		return fmt.Errorf("read tree: %w", err)
 	}
 
-	return fn(tree)
+	return fn(tree, commit.Hash.String())
 }
 
 func readManifestFromTree(tree *object.Tree, basePath string) (*artifact.Manifest, error) {
@@ -258,25 +258,12 @@ func readManifestFromTree(tree *object.Tree, basePath string) (*artifact.Manifes
 	return &m, nil
 }
 
-func synthesizeManifest(tree *object.Tree, dep *artifact.GitDependency) (*artifact.Manifest, error) {
-	if dep.Kind == "" {
-		return nil, fmt.Errorf("manifestless git dependency: kind is required when no artifact.json is present")
-	}
-	if dep.Entrypoint == "" {
-		return nil, fmt.Errorf("manifestless git dependency: entrypoint is required when no artifact.json is present")
-	}
-	if dep.Commit == "" {
-		return nil, fmt.Errorf("manifestless git dependency: commit is required when no artifact.json is present")
-	}
-	name := dep.Name
-	if name == "" {
-		if dep.Path != "" {
-			name = filepath.Base(dep.Path)
-		} else {
-			return nil, fmt.Errorf("manifestless git dependency: name is required when path is not set")
-		}
-	}
-
+// synthesizeManifest builds a manifest for a repo path without artifact.json.
+// Fields unset on dep are inferred: kind from a SKILL.md file (the agent-skills
+// convention), entrypoint from SKILL.md for Skill kind, name from the path or
+// repo basename, version from the pinned commit (verbatim) or the commit the
+// ref resolved to (short SHA). Explicit dep fields always win over inference.
+func synthesizeManifest(tree *object.Tree, dep *artifact.GitDependency, resolvedCommit string) (*artifact.Manifest, error) {
 	var files []string
 	if dep.Files != nil {
 		files = slices.Clone(dep.Files)
@@ -291,22 +278,74 @@ func synthesizeManifest(tree *object.Tree, dep *artifact.GitDependency) (*artifa
 		}
 	}
 
-	if !slices.Contains(files, dep.Entrypoint) {
-		return nil, fmt.Errorf("manifestless git dependency: entrypoint %q not found among files", dep.Entrypoint)
+	kind := dep.Kind
+	if kind == "" {
+		if slices.Contains(files, "SKILL.md") {
+			kind = "Skill"
+		} else {
+			return nil, fmt.Errorf("manifestless git dependency: kind is required when no artifact.json is present and cannot be inferred (pass --kind or use a path containing SKILL.md)")
+		}
+	}
+
+	entrypoint := dep.Entrypoint
+	if entrypoint == "" && kind == "Skill" && slices.Contains(files, "SKILL.md") {
+		entrypoint = "SKILL.md"
+	}
+	if entrypoint == "" {
+		return nil, fmt.Errorf("manifestless git dependency: entrypoint is required when no artifact.json is present and cannot be inferred")
+	}
+
+	name := dep.Name
+	if name == "" {
+		if dep.Path != "" {
+			name = filepath.Base(dep.Path)
+		} else {
+			name = repoBasename(dep.URL)
+		}
+	}
+
+	version := dep.Commit
+	if version == "" {
+		if resolvedCommit == "" {
+			return nil, fmt.Errorf("manifestless git dependency: commit is required when no artifact.json is present and the ref did not resolve to a commit")
+		}
+		version = shortCommit(resolvedCommit)
+	}
+
+	if !slices.Contains(files, entrypoint) {
+		return nil, fmt.Errorf("manifestless git dependency: entrypoint %q not found among files", entrypoint)
 	}
 
 	return &artifact.Manifest{
 		APIVersion: artifact.SupportedAPIVersion,
-		Kind:       dep.Kind,
+		Kind:       kind,
 		Metadata: artifact.Metadata{
 			Name:    name,
-			Version: dep.Commit,
+			Version: version,
 		},
 		Spec: artifact.Spec{
-			Entrypoint: dep.Entrypoint,
+			Entrypoint: entrypoint,
 			Files:      files,
 		},
 	}, nil
+}
+
+// repoBasename derives an artifact name from a Git URL, e.g.
+// "https://github.com/org/skills.git" -> "skills".
+func repoBasename(url string) string {
+	base := filepath.Base(strings.TrimSuffix(strings.TrimRight(url, "/"), ".git"))
+	if base == "/" || base == "." {
+		return ""
+	}
+	return base
+}
+
+// shortCommit returns the 7-char short form of a commit SHA.
+func shortCommit(sha string) string {
+	if len(sha) <= 7 {
+		return sha
+	}
+	return sha[:7]
 }
 
 func collectFilesFromTree(tree *object.Tree, basePath string) ([]string, error) {

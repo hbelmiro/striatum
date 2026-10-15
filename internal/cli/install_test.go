@@ -3343,3 +3343,296 @@ func TestInstall_Memory_AllExistingProjects(t *testing.T) {
 		t.Errorf("expected 2 DB entries (one per project), got %d", len(entries))
 	}
 }
+
+// setupManifestlessGitRepo creates a bare git repo with a skill directory
+// (SKILL.md plus files, no artifact.json) at subPath, on branch main.
+// Returns the file:// URL to the bare repo.
+func setupManifestlessGitRepo(t *testing.T, subPath string, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	bareDir := filepath.Join(dir, "bare.git")
+
+	run := func(wd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s\n%s", args, err, out)
+		}
+	}
+
+	run(dir, "git", "init", "--bare", "-b", "master", bareDir)
+	run(dir, "git", "clone", bareDir, workDir)
+
+	baseDir := workDir
+	if subPath != "" {
+		baseDir = filepath.Join(workDir, subPath)
+		if err := os.MkdirAll(baseDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range files {
+		full := filepath.Join(baseDir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run(workDir, "git", "add", "-A")
+	run(workDir, "git", "commit", "-m", "init")
+	run(workDir, "git", "push", "origin", "HEAD")
+
+	p := filepath.ToSlash(bareDir)
+	if len(p) > 0 && p[0] != '/' {
+		p = "/" + p
+	}
+	return "file://" + p
+}
+
+func TestInstall_GitRef_Manifestless_WithKind_HappyPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "skills/handoff", map[string]string{
+		"SKILL.md":   "# Handoff Skill",
+		"notes.md":   "# Notes",
+		"sub/lib.md": "# Lib",
+	})
+
+	out := &strings.Builder{}
+	root := NewRootCommand()
+	root.SetOut(out)
+	root.SetArgs([]string{"install", "--target", "claude", "--kind", "Skill", "git:" + repoURL + "@master#skills/handoff"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install manifestless git ref: %v", err)
+	}
+	if !strings.Contains(out.String(), "Installed") {
+		t.Errorf("output %q", out.String())
+	}
+
+	claudeSkills := filepath.Join(home, ".claude", "skills", "handoff")
+	data, err := os.ReadFile(filepath.Join(claudeSkills, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(data), "Handoff Skill") {
+		t.Errorf("SKILL.md = %q", string(data))
+	}
+	for _, f := range []string{"notes.md", "sub/lib.md", "artifact.json"} {
+		if _, err := os.Stat(filepath.Join(claudeSkills, f)); err != nil {
+			t.Errorf("file %s not installed: %v", f, err)
+		}
+	}
+
+	// Version is the short commit SHA; manifest and DB must agree so list and
+	// uninstall work.
+	barePath := strings.TrimPrefix(repoURL, "file://")
+	commitOut, err := exec.Command("git", "-C", barePath, "rev-parse", "master").Output()
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	shortSHA := strings.TrimSpace(string(commitOut))[:7]
+	m, err := artifact.Load(filepath.Join(claudeSkills, "artifact.json"))
+	if err != nil {
+		t.Fatalf("load installed manifest: %v", err)
+	}
+	if m.Metadata.Version != shortSHA {
+		t.Errorf("Version = %q, want short SHA %q", m.Metadata.Version, shortSHA)
+	}
+	if m.Metadata.Name != "handoff" {
+		t.Errorf("Name = %q, want handoff", m.Metadata.Name)
+	}
+
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Kind == "Skill" && e.Name == "handoff" && e.Version == shortSHA {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("installed DB entry for handoff@%s not found: %+v", shortSHA, entries)
+	}
+
+	// uninstall removes it
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"uninstall", "handoff", "--kind", "Skill", "--target", "claude"})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("uninstall manifestless skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(claudeSkills, "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("skill dir should be removed after uninstall (err=%v)", err)
+	}
+}
+
+func TestInstall_GitRef_Manifestless_WithoutKind_Errors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "skills/handoff", map[string]string{
+		"SKILL.md": "# Handoff Skill",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "git:" + repoURL + "@master#skills/handoff"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install without --kind should infer Skill from SKILL.md: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "handoff", "SKILL.md")); err != nil {
+		t.Errorf("skill not installed: %v", err)
+	}
+}
+
+func TestInstall_GitRef_Manifestless_UnrecognizableStructure_Errors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "docs/random", map[string]string{
+		"README.md": "# Not a skill",
+	})
+
+	// --kind given but structure does not match: entrypoint cannot be inferred
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "--kind", "Skill", "git:" + repoURL + "@master#docs/random"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("install should error when entrypoint cannot be inferred")
+	}
+	if !strings.Contains(err.Error(), "entrypoint") {
+		t.Errorf("error should mention entrypoint: %v", err)
+	}
+
+	// no --kind and unrecognizable structure
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"install", "--target", "claude", "git:" + repoURL + "@master#docs/random"})
+	err = root2.Execute()
+	if err == nil {
+		t.Fatal("install should error when kind is neither given nor inferable")
+	}
+	if !strings.Contains(err.Error(), "--kind") {
+		t.Errorf("error should mention --kind: %v", err)
+	}
+}
+
+func TestInstall_GitRef_Manifestbearing_IgnoresKindFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupLocalGitRepo(t, "", "v1.0.0")
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "cursor", "--kind", "Prompt", "git:" + repoURL + "@v1.0.0"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install manifest-bearing git ref with --kind: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor", "skills", "git-skill", "SKILL.md")); err != nil {
+		t.Errorf("manifest kind should win over --kind: %v", err)
+	}
+}
+
+func TestInstall_GitRef_Manifestless_InvalidKind_ErrorsBeforePull(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "skills/handoff", map[string]string{
+		"SKILL.md": "# Handoff Skill",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "--kind", "Foo", "git:" + repoURL + "@master#skills/handoff"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("install with unsupported --kind should error")
+	}
+	if !strings.Contains(err.Error(), "unsupported kind") {
+		t.Errorf("error should mention unsupported kind: %v", err)
+	}
+	// No stray cache dir should be created for the invalid kind.
+	if _, statErr := os.Stat(filepath.Join(home, ".striatum", "cache", "Foo")); !os.IsNotExist(statErr) {
+		t.Errorf("cache dir for invalid kind should not exist (err=%v)", statErr)
+	}
+}
+
+func TestInstall_ReinstallAll_ManifestlessGitKind_SurvivesCacheEviction(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "skills/handoff", map[string]string{
+		"SKILL.md": "# Handoff Skill",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "--kind", "Skill", "git:" + repoURL + "@master#skills/handoff"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install manifestless git ref: %v", err)
+	}
+
+	// The stored source ref must carry the kind so re-pull works after eviction.
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatalf("load installed: %v", err)
+	}
+	var reg string
+	for _, e := range entries {
+		if e.Name == "handoff" {
+			reg = e.Registry
+		}
+	}
+	if !strings.Contains(reg, "?kind=Skill") {
+		t.Fatalf("stored source ref %q should encode kind", reg)
+	}
+
+	// Evict the cache and replay the install DB.
+	cacheDir := installer.CacheDir("Skill", "handoff", entries[0].Version)
+	if err := os.RemoveAll(cacheDir); err != nil {
+		t.Fatalf("evict cache: %v", err)
+	}
+	root2 := NewRootCommand()
+	root2.SetArgs([]string{"install", "--reinstall-all"})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("reinstall-all should re-pull manifestless skill from stored ref: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "handoff", "SKILL.md")); err != nil {
+		t.Errorf("skill not reinstalled: %v", err)
+	}
+}
+
+func TestInstall_GitHubWebURL_ReferenceNormalization(t *testing.T) {
+	// Offline wiring check: runInstall normalizes GitHub web URLs to git:
+	// references before the git branch runs. Conversion itself is unit-tested
+	// in pkg/registry (TestNormalizeGitHubURL); a full end-to-end install
+	// from a github.com URL needs the network and lives with integration tests.
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff", "git:https://github.com/mattpocock/skills.git@main#skills/productivity/handoff"},
+		{"https://github.com/mattpocock/skills/blob/main/skills/productivity/handoff/SKILL.md", "git:https://github.com/mattpocock/skills.git@main#skills/productivity/handoff"},
+		{"git:https://github.com/org/repo.git@main#sub", "git:https://github.com/org/repo.git@main#sub"},
+		{"oci:/path:tag", "oci:/path:tag"},
+	}
+	for _, tt := range tests {
+		if got := normalizeInstallReference(tt.in); got != tt.want {
+			t.Errorf("normalizeInstallReference(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

@@ -20,13 +20,13 @@ import (
 )
 
 func newInstallCmd() *cobra.Command {
-	var target, projectPath string
+	var target, projectPath, kind string
 	var force, reinstallAll, allExistingProjects bool
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Pull and install an artifact into the appropriate target directory",
-		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor, claude, or codex). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, or registry reference.",
-		Example: "  striatum install --target claude localhost:5000/artifacts/my-skill:1.0.0\n  striatum install --target claude oci:/path/to/layout:my-skill:1.0.0\n  striatum install --target claude .",
+		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor, claude, or codex). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, registry reference, git: reference, or GitHub web URL (tree or blob path). For git: references whose path has no artifact.json, --kind selects the artifact kind when it cannot be inferred (a SKILL.md file infers Skill).",
+		Example: "  striatum install --target claude localhost:5000/artifacts/my-skill:1.0.0\n  striatum install --target claude oci:/path/to/layout:my-skill:1.0.0\n  striatum install --target claude .\n  striatum install --target claude --kind Skill git:https://github.com/org/skills.git@main#skills/my-skill",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if reinstallAll {
@@ -41,11 +41,12 @@ func newInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force, allExistingProjects)
+			return runInstall(cmd, reference, target, strings.TrimSpace(projectPath), force, allExistingProjects, strings.TrimSpace(kind))
 		},
 	}
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Install target: cursor, claude, or codex (required)")
 	cmd.Flags().StringVar(&projectPath, "project", "", "Project path for project-level install (e.g. .)")
+	cmd.Flags().StringVar(&kind, "kind", "", "Artifact kind for manifestless git: references when inference fails (Skill, Prompt, or Workflow)")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite conflicting versions")
 	cmd.Flags().BoolVar(&reinstallAll, "reinstall-all", false, "Replay all entries from install DB")
 	cmd.Flags().BoolVar(&allExistingProjects, "all-existing-projects", false, "Install Memory artifacts to all existing Claude Code project directories")
@@ -255,7 +256,17 @@ func isLocalDirRef(reference string) bool {
 	return err == nil
 }
 
-func runInstall(cmd *cobra.Command, reference, target, projectPath string, force, allExistingProjects bool) error {
+// normalizeInstallReference converts GitHub web URLs (tree/blob paths) to
+// git: references. All other references pass through unchanged.
+func normalizeInstallReference(reference string) string {
+	if normalized, ok := registry.NormalizeGitHubURL(reference); ok {
+		return normalized
+	}
+	return reference
+}
+
+func runInstall(cmd *cobra.Command, reference, target, projectPath string, force, allExistingProjects bool, kind string) error {
+	reference = normalizeInstallReference(reference)
 	if isLocalDirRef(reference) {
 		return runLocalInstall(cmd, reference, target, projectPath, force, allExistingProjects)
 	}
@@ -269,6 +280,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	var targetObj oras.ReadOnlyTarget
 	var ref string
 	var rootManifest *artifact.Manifest
+	var gitSourceRef string
 
 	if name, version, ok := refToCacheCandidate(reference); ok {
 		m, err := loadCachedManifest(name, version)
@@ -287,6 +299,15 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			if !ok {
 				return fmt.Errorf("expected git dependency from %q", reference)
 			}
+			if kind != "" {
+				if !artifact.IsSupportedKind(kind) {
+					return fmt.Errorf("unsupported kind %q; supported: %s", kind, strings.Join(artifact.SupportedKinds(), ", "))
+				}
+				gitDep.Kind = kind
+			}
+			// Persist the canonical ref (which encodes kind) so reinstall-all
+			// and update can re-pull manifestless repos after cache eviction.
+			gitSourceRef = gitDep.CanonicalRef()
 			cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 			if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
 				return fmt.Errorf("create cache root: %w", err)
@@ -383,11 +404,14 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 	if err := validateResolvedPaths(resolved); err != nil {
 		return err
 	}
-	if err := ensureArtifactsInCache(ctx, reference, targetObj, ref, resolved); err != nil {
+	if err := ensureArtifactsInCache(ctx, reference, kind, targetObj, ref, resolved); err != nil {
 		return err
 	}
 
 	rootSourceRef := reference
+	if gitSourceRef != "" {
+		rootSourceRef = gitSourceRef
+	}
 	isShortRef := !strings.Contains(reference, "/") && !strings.HasPrefix(reference, "oci:")
 	if isShortRef {
 		rootSourceRef = ""
@@ -927,7 +951,7 @@ func buildRequired(entries []installer.InstalledEntry, projectPath, target strin
 // ensureArtifactsInCache pulls each resolved artifact into the Striatum cache when missing.
 // rootTarget and rootRef apply to resolved[0]; rootTarget may be nil when the root manifest
 // was loaded from cache and re-pull lazy-resolves via reference.
-func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget oras.ReadOnlyTarget, rootRef string, resolved []resolver.ResolvedArtifact) error {
+func ensureArtifactsInCache(ctx context.Context, reference, kind string, rootTarget oras.ReadOnlyTarget, rootRef string, resolved []resolver.ResolvedArtifact) error {
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	for i, r := range resolved {
 		idx, res := i, r
@@ -959,6 +983,9 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 					return fmt.Errorf("parse git reference %q: %w", reference, err)
 				}
 				if gitDep, ok := loc.(*artifact.GitDependency); ok {
+					if kind != "" {
+						gitDep.Kind = kind
+					}
 					capturedDep := gitDep
 					gitBack := &gitbackend.Backend{}
 					digestFn = func(ctx context.Context) (string, error) {
@@ -995,6 +1022,9 @@ func ensureArtifactsInCache(ctx context.Context, reference string, rootTarget or
 						loc, err := registry.ParseReference(reference)
 						if err != nil {
 							return fmt.Errorf("parse git reference: %w", err)
+						}
+						if gitDep, ok := loc.(*artifact.GitDependency); ok && kind != "" {
+							gitDep.Kind = kind
 						}
 						if err := defaultRouter().Pull(ctx, loc, stagingDir); err != nil {
 							return fmt.Errorf("download git artifact: %w", err)
