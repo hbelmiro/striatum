@@ -98,7 +98,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				return nil
 			}
 
-			if err := ensureArtifactsInCache(ctx, reference, target, ref, resolved); err != nil {
+			if err := ensureArtifactsInCache(ctx, reference, "", target, ref, resolved); err != nil {
 				return err
 			}
 			for _, r := range resolved {

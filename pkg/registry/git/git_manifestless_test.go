@@ -202,52 +202,32 @@ func TestBackend_Inspect_NoManifest_PathDoesNotExist_Fails(t *testing.T) {
 	}
 }
 
-func TestBackend_Inspect_NoManifest_NoKind_Fails(t *testing.T) {
-	url, sha := setupLocalRepoWithoutManifest(t, "skills/s", "v1.0.0", map[string]string{
-		"SKILL.md": "# Skill",
-	})
-	b := &Backend{}
-	dep := &artifact.GitDependency{
-		URL:        url,
-		Ref:        "v1.0.0",
-		Path:       "skills/s",
-		Commit:     sha,
-		Files:      []string{"SKILL.md"},
-		Entrypoint: "SKILL.md",
-	}
-	_, err := b.Inspect(context.Background(), dep)
-	if err == nil {
-		t.Fatal("Inspect() should fail when kind is missing for manifestless dep")
-	}
-	if !strings.Contains(err.Error(), "kind") {
-		t.Errorf("error should mention kind: %v", err)
-	}
-}
-
-func TestBackend_Inspect_NoManifest_NoEntrypoint_Fails(t *testing.T) {
-	url, sha := setupLocalRepoWithoutManifest(t, "skills/s", "v1.0.0", map[string]string{
-		"SKILL.md": "# Skill",
+func TestBackend_Inspect_NoManifest_NoEntrypoint_NonSkillKind_Fails(t *testing.T) {
+	// Entry point inference only covers Skill (SKILL.md); other kinds must
+	// declare an entrypoint explicitly.
+	url, sha := setupLocalRepoWithoutManifest(t, "prompts/p", "v1.0.0", map[string]string{
+		"prompt.md": "# Prompt",
 	})
 	b := &Backend{}
 	dep := &artifact.GitDependency{
 		URL:    url,
 		Ref:    "v1.0.0",
-		Path:   "skills/s",
+		Path:   "prompts/p",
 		Commit: sha,
-		Files:  []string{"SKILL.md"},
-		Kind:   "Skill",
+		Files:  []string{"prompt.md"},
+		Kind:   "Prompt",
 	}
 	_, err := b.Inspect(context.Background(), dep)
 	if err == nil {
-		t.Fatal("Inspect() should fail when entrypoint is missing for manifestless dep")
+		t.Fatal("Inspect() should fail when entrypoint is missing and cannot be inferred")
 	}
 	if !strings.Contains(err.Error(), "entrypoint") {
 		t.Errorf("error should mention entrypoint: %v", err)
 	}
 }
 
-func TestBackend_Inspect_NoManifest_NoCommit_Fails(t *testing.T) {
-	url, _ := setupLocalRepoWithoutManifest(t, "skills/s", "v1.0.0", map[string]string{
+func TestBackend_Inspect_NoManifest_NoCommit_InfersFromRef(t *testing.T) {
+	url, sha := setupLocalRepoWithoutManifest(t, "skills/s", "v1.0.0", map[string]string{
 		"SKILL.md": "# Skill",
 	})
 	b := &Backend{}
@@ -259,16 +239,16 @@ func TestBackend_Inspect_NoManifest_NoCommit_Fails(t *testing.T) {
 		Kind:       "Skill",
 		Entrypoint: "SKILL.md",
 	}
-	_, err := b.Inspect(context.Background(), dep)
-	if err == nil {
-		t.Fatal("Inspect() should fail when commit is missing for manifestless dep")
+	m, err := b.Inspect(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("Inspect() err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "commit") {
-		t.Errorf("error should mention commit: %v", err)
+	if m.Metadata.Version != sha[:7] {
+		t.Errorf("Version = %q, want short SHA %q inferred from ref", m.Metadata.Version, sha[:7])
 	}
 }
 
-func TestBackend_Inspect_NoManifest_NoNameNoPath_Fails(t *testing.T) {
+func TestBackend_Inspect_NoManifest_NoNameNoPath_InfersFromRepo(t *testing.T) {
 	url, sha := setupLocalRepoWithoutManifest(t, "", "v1.0.0", map[string]string{
 		"SKILL.md": "# Skill",
 	})
@@ -276,17 +256,19 @@ func TestBackend_Inspect_NoManifest_NoNameNoPath_Fails(t *testing.T) {
 	dep := &artifact.GitDependency{
 		URL:        url,
 		Ref:        "v1.0.0",
-		Commit:     sha,
 		Files:      []string{"SKILL.md"},
 		Kind:       "Skill",
 		Entrypoint: "SKILL.md",
 	}
-	_, err := b.Inspect(context.Background(), dep)
-	if err == nil {
-		t.Fatal("Inspect() should fail when neither name nor path is set for manifestless dep")
+	m, err := b.Inspect(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("Inspect() err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "name") {
-		t.Errorf("error should mention name: %v", err)
+	if m.Metadata.Name != "bare" {
+		t.Errorf("Name = %q, want repo basename %q", m.Metadata.Name, "bare")
+	}
+	if m.Metadata.Version != sha[:7] {
+		t.Errorf("Version = %q, want short SHA %q", m.Metadata.Version, sha[:7])
 	}
 }
 
@@ -710,5 +692,192 @@ func TestBackend_Pull_NoManifest_WritesSyntheticManifest(t *testing.T) {
 	}
 	if err := artifact.Validate(m); err != nil {
 		t.Errorf("synthetic manifest should pass Validate(), got: %v", err)
+	}
+}
+
+// --- Manifestless with inferred entrypoint and commit (top-level CLI install path) ---
+// Kind comes from the CLI --kind flag; entrypoint and commit are derived when unset.
+
+// kindOnlyDep builds a GitDependency with kind set (from --kind) but entrypoint,
+// commit, files, and name unset, as produced by parsing a CLI ref like
+// git:URL@ref#path plus the --kind flag.
+func kindOnlyDep(url, ref, path, kind string) *artifact.GitDependency {
+	return &artifact.GitDependency{URL: url, Ref: ref, Path: path, Kind: kind}
+}
+
+func TestBackend_Pull_NoManifest_KindOnly_InferredEntrypointAndCommit(t *testing.T) {
+	url, sha := setupLocalRepoWithoutManifest(t, "skills/handoff", "main", map[string]string{
+		"SKILL.md":   "# Handoff",
+		"notes.md":   "# Notes",
+		"sub/lib.md": "# Lib",
+	})
+	b := &Backend{}
+	outDir := t.TempDir()
+	dep := kindOnlyDep(url, "main", "skills/handoff", "Skill")
+	if err := b.Pull(context.Background(), dep, outDir); err != nil {
+		t.Fatalf("Pull() err = %v", err)
+	}
+
+	m, err := artifact.Load(filepath.Join(outDir, "handoff", "artifact.json"))
+	if err != nil {
+		t.Fatalf("load synthetic artifact.json: %v", err)
+	}
+	if m.Kind != "Skill" {
+		t.Errorf("Kind = %q, want Skill", m.Kind)
+	}
+	if m.Spec.Entrypoint != "SKILL.md" {
+		t.Errorf("Entrypoint = %q, want SKILL.md (inferred for Skill kind)", m.Spec.Entrypoint)
+	}
+	if m.Metadata.Name != "handoff" {
+		t.Errorf("Name = %q, want handoff (path basename)", m.Metadata.Name)
+	}
+	wantVersion := sha[:7]
+	if m.Metadata.Version != wantVersion {
+		t.Errorf("Version = %q, want short commit SHA %q", m.Metadata.Version, wantVersion)
+	}
+	if len(m.Spec.Files) != 3 {
+		t.Errorf("Files = %v, want 3 files", m.Spec.Files)
+	}
+	if err := artifact.Validate(m); err != nil {
+		t.Errorf("synthetic manifest should pass Validate(): %v", err)
+	}
+	for _, f := range []string{"SKILL.md", "notes.md", "sub/lib.md"} {
+		if _, err := os.Stat(filepath.Join(outDir, "handoff", filepath.FromSlash(f))); err != nil {
+			t.Errorf("file %s not extracted: %v", f, err)
+		}
+	}
+}
+
+func TestBackend_Inspect_NoManifest_KindOnly_InferredEntrypointAndCommit(t *testing.T) {
+	url, sha := setupLocalRepoWithoutManifest(t, "skills/handoff", "main", map[string]string{
+		"SKILL.md": "# Handoff",
+	})
+	b := &Backend{}
+	m, err := b.Inspect(context.Background(), kindOnlyDep(url, "main", "skills/handoff", "Skill"))
+	if err != nil {
+		t.Fatalf("Inspect() err = %v", err)
+	}
+	if m.Kind != "Skill" {
+		t.Errorf("Kind = %q, want Skill", m.Kind)
+	}
+	if m.Spec.Entrypoint != "SKILL.md" {
+		t.Errorf("Entrypoint = %q, want SKILL.md", m.Spec.Entrypoint)
+	}
+	if m.Metadata.Name != "handoff" {
+		t.Errorf("Name = %q, want handoff", m.Metadata.Name)
+	}
+	wantVersion := sha[:7]
+	if m.Metadata.Version != wantVersion {
+		t.Errorf("Version = %q, want short commit SHA %q", m.Metadata.Version, wantVersion)
+	}
+}
+
+func TestBackend_Pull_NoManifest_KindOnly_RootPath_NameFromRepo(t *testing.T) {
+	url, sha := setupLocalRepoWithoutManifest(t, "", "main", map[string]string{
+		"SKILL.md": "# Root Skill",
+	})
+	b := &Backend{}
+	outDir := t.TempDir()
+	if err := b.Pull(context.Background(), kindOnlyDep(url, "main", "", "Skill"), outDir); err != nil {
+		t.Fatalf("Pull() err = %v", err)
+	}
+	m, err := artifact.Load(filepath.Join(outDir, "bare", "artifact.json"))
+	if err != nil {
+		t.Fatalf("load synthetic artifact.json: %v", err)
+	}
+	if m.Metadata.Name != "bare" {
+		t.Errorf("Name = %q, want repo basename %q", m.Metadata.Name, "bare")
+	}
+	wantVersion := sha[:7]
+	if m.Metadata.Version != wantVersion {
+		t.Errorf("Version = %q, want short commit SHA %q", m.Metadata.Version, wantVersion)
+	}
+}
+
+func TestBackend_Pull_NoManifest_NoKind_InfersSkillFromSkillMd(t *testing.T) {
+	url, sha := setupLocalRepoWithoutManifest(t, "skills/handoff", "main", map[string]string{
+		"SKILL.md": "# Handoff",
+	})
+	b := &Backend{}
+	outDir := t.TempDir()
+	if err := b.Pull(context.Background(), kindOnlyDep(url, "main", "skills/handoff", ""), outDir); err != nil {
+		t.Fatalf("Pull() err = %v", err)
+	}
+	m, err := artifact.Load(filepath.Join(outDir, "handoff", "artifact.json"))
+	if err != nil {
+		t.Fatalf("load synthetic artifact.json: %v", err)
+	}
+	if m.Kind != "Skill" {
+		t.Errorf("Kind = %q, want Skill (inferred from SKILL.md)", m.Kind)
+	}
+	if m.Metadata.Version != sha[:7] {
+		t.Errorf("Version = %q, want short SHA %q", m.Metadata.Version, sha[:7])
+	}
+}
+
+func TestBackend_Inspect_NoManifest_NoKind_InfersSkillFromSkillMd(t *testing.T) {
+	url, _ := setupLocalRepoWithoutManifest(t, "skills/handoff", "main", map[string]string{
+		"SKILL.md": "# Handoff",
+	})
+	b := &Backend{}
+	m, err := b.Inspect(context.Background(), kindOnlyDep(url, "main", "skills/handoff", ""))
+	if err != nil {
+		t.Fatalf("Inspect() err = %v", err)
+	}
+	if m.Kind != "Skill" {
+		t.Errorf("Kind = %q, want Skill (inferred from SKILL.md)", m.Kind)
+	}
+}
+
+func TestBackend_Pull_NoManifest_NoKind_Unrecognizable_ErrorsWithKindHint(t *testing.T) {
+	url, _ := setupLocalRepoWithoutManifest(t, "docs/random", "main", map[string]string{
+		"README.md": "# Not a skill",
+	})
+	b := &Backend{}
+	err := b.Pull(context.Background(), kindOnlyDep(url, "main", "docs/random", ""), t.TempDir())
+	if err == nil {
+		t.Fatal("Pull() should error when kind is neither given nor inferable")
+	}
+	if !strings.Contains(err.Error(), "--kind") {
+		t.Errorf("error should mention --kind: %v", err)
+	}
+}
+
+func TestBackend_Pull_NoManifest_KindWithoutEntrypointOrSkillMd_Errors(t *testing.T) {
+	url, _ := setupLocalRepoWithoutManifest(t, "docs/random", "main", map[string]string{
+		"README.md": "# Not a skill",
+	})
+	b := &Backend{}
+	err := b.Pull(context.Background(), kindOnlyDep(url, "main", "docs/random", "Skill"), t.TempDir())
+	if err == nil {
+		t.Fatal("Pull() should error when entrypoint cannot be inferred")
+	}
+	if !strings.Contains(err.Error(), "entrypoint") {
+		t.Errorf("error should mention entrypoint: %v", err)
+	}
+}
+
+func TestBackend_Pull_NoManifest_NestedSkillMd_NotInferred(t *testing.T) {
+	// #path points at the parent of the SKILL.md directory: the collected
+	// files contain "sub/SKILL.md", not "SKILL.md", so neither kind nor
+	// entrypoint can be inferred. Current contract: error with --kind hint.
+	url, _ := setupLocalRepoWithoutManifest(t, "skills", "main", map[string]string{
+		"handoff/SKILL.md": "# Handoff",
+	})
+	b := &Backend{}
+	err := b.Pull(context.Background(), kindOnlyDep(url, "main", "skills", ""), t.TempDir())
+	if err == nil {
+		t.Fatal("Pull() should error when SKILL.md is nested under the pulled path")
+	}
+	if !strings.Contains(err.Error(), "--kind") {
+		t.Errorf("error should mention --kind: %v", err)
+	}
+	// Even with --kind Skill, the entrypoint cannot be inferred for a nested SKILL.md.
+	err = b.Pull(context.Background(), kindOnlyDep(url, "main", "skills", "Skill"), t.TempDir())
+	if err == nil {
+		t.Fatal("Pull() should error when entrypoint cannot be inferred for nested SKILL.md")
+	}
+	if !strings.Contains(err.Error(), "entrypoint") {
+		t.Errorf("error should mention entrypoint: %v", err)
 	}
 }

@@ -17,8 +17,9 @@ import (
 //   - "git:URL@ref#path"               -> *artifact.GitDependency (with sub-path)
 //   - "git:URL@ref!commit"             -> *artifact.GitDependency (with commit)
 //   - "git:URL@ref#path!commit"        -> *artifact.GitDependency (with sub-path and commit)
+//   - "git:URL@ref[#path][!commit]?kind=K" -> *artifact.GitDependency (with kind, e.g. for manifestless repos)
 //
-// The characters '#' and '!' are reserved delimiters in git references.
+// The characters '#', '!', and '?' are reserved delimiters in git references.
 // Git refs or sub-paths containing these characters cannot be represented
 // in this format.
 func ParseReference(ref string) (Locator, error) {
@@ -35,6 +36,49 @@ func ParseReference(ref string) (Locator, error) {
 	return parseRemoteOCIReference(ref)
 }
 
+// NormalizeGitHubURL converts a GitHub web URL to a Striatum git reference.
+// Supported shapes:
+//   - "https://github.com/<org>/<repo>/tree/<ref>[/<path>]"  -> "git:<repo>.git@<ref>[#<path>]"
+//   - "https://github.com/<org>/<repo>/blob/<ref>/<file>"    -> "git:<repo>.git@<ref>[#<dir of file>]"
+//
+// Returns ok=false when ref is not a GitHub tree/blob web URL.
+// Refs containing slashes cannot be represented in this format.
+func NormalizeGitHubURL(ref string) (string, bool) {
+	for _, scheme := range []string{"https://", "http://"} {
+		if !strings.HasPrefix(ref, scheme+"github.com/") {
+			continue
+		}
+		rest := strings.TrimSuffix(strings.TrimPrefix(ref, scheme+"github.com/"), "/")
+		parts := strings.Split(rest, "/")
+		// org/repo/(tree|blob)/ref[/rest...]
+		if len(parts) < 4 || (parts[2] != "tree" && parts[2] != "blob") {
+			return "", false
+		}
+		org, repo, verb, gitRef := parts[0], parts[1], parts[2], parts[3]
+		if org == "" || repo == "" || gitRef == "" {
+			return "", false
+		}
+		path := ""
+		if len(parts) > 4 {
+			if verb == "tree" {
+				path = strings.Join(parts[4:], "/")
+			} else {
+				// blob points at a file; the artifact path is its directory.
+				path = strings.Join(parts[4:len(parts)-1], "/")
+			}
+		} else if verb == "blob" {
+			// blob/<ref> with no file: nothing to derive a directory from.
+			return "", false
+		}
+		out := "git:" + scheme + "github.com/" + org + "/" + repo + ".git@" + gitRef
+		if path != "" {
+			out += "#" + path
+		}
+		return out, true
+	}
+	return "", false
+}
+
 func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	rest := ref[len("git:"):]
 	atIdx := strings.LastIndex(rest, "@")
@@ -43,6 +87,22 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	}
 	url := rest[:atIdx]
 	refAndPath := rest[atIdx+1:]
+
+	kind := ""
+	if qIdx := strings.Index(refAndPath, "?"); qIdx >= 0 {
+		kindSeg := refAndPath[qIdx+1:]
+		refAndPath = refAndPath[:qIdx]
+		if !strings.HasPrefix(kindSeg, "kind=") {
+			return nil, fmt.Errorf("invalid git reference %q: '?' must be followed by 'kind='", ref)
+		}
+		kind = strings.TrimSpace(kindSeg[len("kind="):])
+		if kind == "" {
+			return nil, fmt.Errorf("invalid git reference %q: empty kind after '?kind='", ref)
+		}
+		if strings.ContainsAny(kind, "/\\?#!") || strings.Contains(kind, "..") {
+			return nil, fmt.Errorf("invalid git reference %q: kind must not contain delimiters or path separators", ref)
+		}
+	}
 
 	gitRef := refAndPath
 	path := ""
@@ -82,7 +142,7 @@ func parseGitReference(ref string) (*artifact.GitDependency, error) {
 	if commit != "" && !artifact.IsValidCommitSHA(commit) {
 		return nil, fmt.Errorf("invalid git reference %q: commit must be a 40-character lowercase hex SHA", ref)
 	}
-	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path, Commit: commit}, nil
+	return &artifact.GitDependency{URL: url, Ref: gitRef, Path: path, Commit: commit, Kind: kind}, nil
 }
 
 func parseOCILayoutReference(ref string) (*OCILayoutLocator, error) {

@@ -639,3 +639,30 @@ func TestUpdate_GitArtifactSkipped(t *testing.T) {
 		t.Errorf("git-skill should not appear in outdated summary: %q", summary)
 	}
 }
+
+func TestUpdate_ManifestlessGitInstall_NotAutoUpdatable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+
+	repoURL := setupManifestlessGitRepo(t, "skills/handoff", map[string]string{
+		"SKILL.md": "# Handoff Skill",
+	})
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"install", "--target", "claude", "git:" + repoURL + "@master#skills/handoff"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install manifestless git ref: %v", err)
+	}
+
+	out := &strings.Builder{}
+	root2 := NewRootCommand()
+	root2.SetOut(out)
+	root2.SetArgs([]string{"update", "--check"})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("update --check should not error for git installs: %v", err)
+	}
+	if !strings.Contains(out.String(), "not auto-updatable") {
+		t.Errorf("output should mark git install as not auto-updatable: %q", out.String())
+	}
+}

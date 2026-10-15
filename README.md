@@ -204,22 +204,31 @@ striatum inspect git:https://github.com/example/skill.git@v1.0.0
 
 ### install
 
-Pull and install an artifact into the appropriate target directory. The artifact kind is auto-detected from the manifest. Accepts a registry reference, `oci:/path:tag`, or a local directory path.
+Pull and install an artifact into the appropriate target directory. The artifact kind is auto-detected from the manifest. Accepts a registry reference, `oci:/path:tag`, a `git:` reference, or a local directory path.
 
 Workflows install to `~/.claude/workflows/<name>/`, Skills and Prompts to the target's skills or prompts directory.
+
+Git references can point at repos without an `artifact.json`. When the path contains a `SKILL.md`, the kind is inferred as Skill and `SKILL.md` becomes the entrypoint. The name comes from the path segment (or the repo name at the repo root), and the version is the short SHA of the commit the ref resolved to. Use `--kind` when the kind cannot be inferred. Repos that do contain `artifact.json` install exactly as before.
+
+GitHub web URLs work too: a `tree` URL installs the directory at that path, and a `blob` URL installs the directory containing the file. Web URLs need a ref without slashes (a plain branch or tag name); for slash-containing refs like `feature/x`, use the `git:` form with a fully-qualified ref.
 
 ```bash
 striatum install --target claude quay.io/my-org/my-skill:1.0.0
 striatum install --target cursor quay.io/my-org/my-skill:1.0.0
 striatum install --target claude --project . quay.io/my-org/my-workflow:1.0.0
+striatum install --target claude git:https://github.com/org/skills.git@main#skills/my-skill
+striatum install --target claude --kind Skill git:https://github.com/org/repo.git@main#docs/myskill
+striatum install --target claude https://github.com/org/skills/tree/main/skills/my-skill
+striatum install --target claude https://github.com/org/skills/blob/main/skills/my-skill/SKILL.md
 ```
 
-| Flag              | Description                                     |
-| ----------------- | ----------------------------------------------- |
-| `-t`, `--target`  | Install target: `cursor` or `claude` (required) |
-| `--project`       | Project path for project-level install          |
-| `--force`         | Overwrite conflicting versions                  |
-| `--reinstall-all` | Replay all entries from the install database    |
+| Flag              | Description                                                     |
+|-------------------|-----------------------------------------------------------------|
+| `-t`, `--target`  | Install target: `cursor` or `claude` (required)                 |
+| `--project`       | Project path for project-level install                          |
+| `--kind`          | Artifact kind for manifestless `git:` refs when inference fails |
+| `--force`         | Overwrite conflicting versions                                  |
+| `--reinstall-all` | Replay all entries from the install database                    |
 
 ### uninstall
 

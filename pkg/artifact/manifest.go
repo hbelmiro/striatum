@@ -137,6 +137,9 @@ func (d *GitDependency) CanonicalRef() string {
 	if d.Commit != "" {
 		s += "!" + d.Commit
 	}
+	if d.Kind != "" {
+		s += "?kind=" + d.Kind
+	}
 	return s
 }
 

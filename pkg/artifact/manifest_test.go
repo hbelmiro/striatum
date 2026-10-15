@@ -1325,11 +1325,28 @@ func TestGitDependency_CanonicalRef_IgnoresNewFields(t *testing.T) {
 		Commit:     "abcdef0123456789abcdef0123456789abcdef01",
 		Files:      []string{"SKILL.md"},
 		Name:       "custom-name",
-		Kind:       "Skill",
 		Entrypoint: "SKILL.md",
 	}
 	if base.CanonicalRef() != withFields.CanonicalRef() {
-		t.Errorf("CanonicalRef should ignore new fields:\n  base:       %q\n  withFields: %q", base.CanonicalRef(), withFields.CanonicalRef())
+		t.Errorf("CanonicalRef should ignore files, name, and entrypoint:\n  base:       %q\n  withFields: %q", base.CanonicalRef(), withFields.CanonicalRef())
+	}
+}
+
+func TestGitDependency_CanonicalRef_IncludesKind(t *testing.T) {
+	base := &GitDependency{
+		URL:    "https://example.com/r.git",
+		Ref:    "v1.0.0",
+	}
+	withKind := &GitDependency{
+		URL:  "https://example.com/r.git",
+		Ref:  "v1.0.0",
+		Kind: "Skill",
+	}
+	if want := "git:https://example.com/r.git@v1.0.0?kind=Skill"; withKind.CanonicalRef() != want {
+		t.Errorf("CanonicalRef() = %q, want %q", withKind.CanonicalRef(), want)
+	}
+	if base.CanonicalRef() == withKind.CanonicalRef() {
+		t.Errorf("CanonicalRef should differ when kind is set: %q", base.CanonicalRef())
 	}
 }
 
