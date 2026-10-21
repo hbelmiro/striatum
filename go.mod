@@ -8,7 +8,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
-	oras.land/oras-go/v2 v2.6.2
+	oras.land/oras-go/v2 v2.6.4
 )
 
 require (
@@ -32,7 +32,7 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
