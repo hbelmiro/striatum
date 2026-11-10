@@ -2,6 +2,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
+    milestone: 6
     directory: /
     schedule:
       interval: daily
@@ -13,6 +14,7 @@ updates:
       - go
 
   - package-ecosystem: github-actions
+    milestone: 6
     directory: /
     schedule:
       interval: daily
@@ -25,6 +27,7 @@ updates:
           - "github/codeql-action/*"
 
   - package-ecosystem: pre-commit
+    milestone: 6
     directory: /
     schedule:
       interval: daily
