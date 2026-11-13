@@ -166,7 +166,7 @@ striatum pack -o ./dist
 
 ### push
 
-Pack and push the artifact to an OCI registry.
+Pack and push the artifact to an OCI registry. Push is registry-only: `oci:` layout references are rejected; use `striatum pack -o <dir>` to write a local OCI layout.
 
 ```bash
 striatum push quay.io/my-org/my-skill:1.0.0

@@ -29,9 +29,9 @@ func pushTestArtifact(t *testing.T, layoutDir, name, version string) {
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# "+name), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ref := "oci:" + layoutDir + ":" + version
-	if _, err := Push(context.Background(), m, baseDir, ref); err != nil {
-		t.Fatalf("push %s:%s: %v", name, version, err)
+	// Tag with the bare version so ListTags sees plain version tags.
+	if err := PackWithTag(context.Background(), m, baseDir, layoutDir, version); err != nil {
+		t.Fatalf("pack %s:%s: %v", name, version, err)
 	}
 }
 

@@ -33,9 +33,10 @@ func pushToLayout(t *testing.T, layoutDir, name, version string) {
 	if err := os.WriteFile(filepath.Join(baseDir, "SKILL.md"), []byte("# "+name+" "+version), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ref := "oci:" + layoutDir + ":" + version
-	if _, err := oci.Push(context.Background(), m, baseDir, ref); err != nil {
-		t.Fatalf("push %s:%s: %v", name, version, err)
+	// Tag with the bare version so update's ListTags/semver flow sees plain
+	// version tags, matching how pushes to real registries are tagged.
+	if err := oci.PackWithTag(context.Background(), m, baseDir, layoutDir, version); err != nil {
+		t.Fatalf("pack %s:%s: %v", name, version, err)
 	}
 }
 
