@@ -10,7 +10,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 )
 
-func TestPush_ToOCILayoutSucceeds(t *testing.T) {
+func TestPush_OCIReferenceRejected(t *testing.T) {
 	dir := t.TempDir()
 	layoutDir := t.TempDir()
 	t.Chdir(dir)
@@ -34,17 +34,24 @@ func TestPush_ToOCILayoutSucceeds(t *testing.T) {
 
 	ref := "oci:" + layoutDir + ":1.0.0"
 	out := &strings.Builder{}
+	stderr := &strings.Builder{}
 	root := NewRootCommand()
 	root.SetOut(out)
+	root.SetErr(stderr)
 	root.SetArgs([]string{"push", ref})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("push: %v", err)
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("push oci: ref: expected error")
 	}
-	if !strings.Contains(out.String(), "Pushed") {
-		t.Errorf("output %q does not contain Pushed", out.String())
+	if !strings.Contains(stderr.String(), "pack -o") {
+		t.Errorf("stderr %q does not point to \"striatum pack -o\"", stderr.String())
 	}
-	if !strings.Contains(out.String(), "Digest: sha256:") {
-		t.Errorf("output %q does not contain digest line", out.String())
+	entries, readErr := os.ReadDir(layoutDir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Errorf("layout dir has %d entries after rejected push, want 0", len(entries))
 	}
 }
 
@@ -121,17 +128,17 @@ func TestPush_WithManifestFlagFromOtherDir(t *testing.T) {
 	t.Chdir(cwd)
 
 	ref := "oci:" + layoutDir + ":1.0.0"
-	out := &strings.Builder{}
+	stderr := &strings.Builder{}
 	root := NewRootCommand()
-	root.SetOut(out)
+	root.SetErr(stderr)
 	root.SetArgs([]string{"push", "-f", projectDir, ref})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("push -f from other dir: %v", err)
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("push -f with oci: ref: expected error")
 	}
-	if !strings.Contains(out.String(), "Pushed") {
-		t.Errorf("output %q does not contain Pushed", out.String())
-	}
-	if !strings.Contains(out.String(), "Digest: sha256:") {
-		t.Errorf("output %q does not contain digest line", out.String())
+	// The manifest must load fine from projectDir; the failure must be the
+	// registry-only rejection, not a manifest error.
+	if !strings.Contains(stderr.String(), "pack -o") {
+		t.Errorf("stderr %q does not point to \"striatum pack -o\"", stderr.String())
 	}
 }

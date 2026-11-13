@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -14,6 +15,7 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/oci"
+	"oras.land/oras-go/v2/errdef"
 )
 
 // Layer annotation for file path (OCI image-spec convention).
@@ -30,7 +32,17 @@ type DepFile struct {
 // paths are read relative to baseDir, the root directory used to resolve those
 // paths (for example, the directory containing artifact.json).
 // Optional depFiles are bundled as extra layers (used for pack-time prompt inlining).
+// The layout is tagged "name:version".
 func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string, depFiles ...DepFile) error {
+	if m == nil {
+		return errors.New("manifest is nil")
+	}
+	return PackWithTag(ctx, m, baseDir, layoutPath, m.Metadata.Name+":"+m.Metadata.Version, depFiles...)
+}
+
+// PackWithTag is like Pack but tags the layout with an explicit tag instead of
+// "name:version".
+func PackWithTag(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath string, tag string, depFiles ...DepFile) error {
 	if m == nil {
 		return errors.New("manifest is nil")
 	}
@@ -38,8 +50,16 @@ func Pack(ctx context.Context, m *artifact.Manifest, baseDir string, layoutPath 
 	if err != nil {
 		return fmt.Errorf("create OCI store: %w", err)
 	}
-	tag := m.Metadata.Name + ":" + m.Metadata.Version
 	return packToTarget(ctx, m, baseDir, store, tag, depFiles...)
+}
+
+// pushBlob pushes a blob to target, treating an already-present blob as success
+// (content-addressed stores reject duplicate pushes; the blob is identical anyway).
+func pushBlob(ctx context.Context, target oras.Target, desc ocispec.Descriptor, r io.Reader) error {
+	if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		return err
+	}
+	return nil
 }
 
 // packToTarget pushes the artifact (config + layers + manifest) to target and tags it.
@@ -59,7 +79,7 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	configDesc := content.NewDescriptorFromBytes(ConfigMediaType, configBytes)
-	if err := target.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil {
+	if err := pushBlob(ctx, target, configDesc, bytes.NewReader(configBytes)); err != nil {
 		return fmt.Errorf("push config: %w", err)
 	}
 
@@ -72,7 +92,7 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		}
 		layerDesc := content.NewDescriptorFromBytes(LayerMediaType, data)
 		layerDesc.Annotations = map[string]string{annotationTitle: name}
-		if err := target.Push(ctx, layerDesc, bytes.NewReader(data)); err != nil {
+		if err := pushBlob(ctx, target, layerDesc, bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("push layer %q: %w", name, err)
 		}
 		layers = append(layers, layerDesc)
@@ -85,7 +105,7 @@ func packToTarget(ctx context.Context, m *artifact.Manifest, baseDir string, tar
 		}
 		layerDesc := content.NewDescriptorFromBytes(LayerMediaType, data)
 		layerDesc.Annotations = map[string]string{annotationTitle: df.AnnotationPath}
-		if err := target.Push(ctx, layerDesc, bytes.NewReader(data)); err != nil {
+		if err := pushBlob(ctx, target, layerDesc, bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("push dep layer %q: %w", df.AnnotationPath, err)
 		}
 		layers = append(layers, layerDesc)

@@ -13,7 +13,7 @@ func newPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "push",
 		Short:   "Push the artifact to an OCI registry",
-		Long:    "Packs the artifact (artifact.json and spec.files from the manifest's project directory) and pushes it to the given reference (e.g. localhost:5000/repo/my-skill:1.0.0).",
+		Long:    "Packs the artifact (artifact.json and spec.files from the manifest's project directory) and pushes it to the given registry reference (e.g. localhost:5000/repo/my-skill:1.0.0). Push is registry-only: oci: layout references are rejected; use \"striatum pack -o <dir>\" to write a local OCI layout.",
 		Example: "  striatum push localhost:5000/skills/my-skill:1.0.0\n  striatum push -f path/to/artifact.json localhost:5000/skills/my-skill:1.0.0",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
