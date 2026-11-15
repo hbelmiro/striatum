@@ -1,6 +1,8 @@
 package selfcontained
 
 import (
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -221,11 +223,12 @@ func TestReadFileSafe_CaseVariantPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "CaseDir", "File.txt"), []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Request with different casing; on case-sensitive filesystems the open
-	// itself fails, which is the correct behavior there.
+	// Request with different casing; on case-sensitive filesystems the
+	// validation walk itself fails with a not-exist error, which is the
+	// correct behavior there.
 	data, err := ReadFileSafe(root, "casedir/file.txt")
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			t.Skip("case-sensitive filesystem: case-variant path cannot open")
 		}
 		t.Fatalf("ReadFileSafe with case-variant path: %v", err)
