@@ -9,6 +9,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/resolver"
+	"github.com/hbelmiro/striatum/pkg/selfcontained"
 	"github.com/spf13/cobra"
 	oras "oras.land/oras-go/v2"
 	orasoci "oras.land/oras-go/v2/content/oci"
@@ -21,7 +22,7 @@ func newPullCmd() *cobra.Command {
 		Use:   "pull",
 		Short: "Download an artifact and its transitive dependencies",
 		Long: `Downloads the artifact and all dependencies into the output directory (default: current working directory).
-Reference can be a registry (host/repo/name:tag) or oci:/path:tag.
+Reference can be a registry (host/repo/name:tag or the digest-only host/repo/name@sha256:... form) or an OCI layout (oci:/path:tag or the digest-only oci:/path@sha256:... form).
 Git dependencies declared in artifact.json are resolved automatically during pull.
 Each artifact is placed in a subdirectory named after the artifact (<output>/<name>/).
 
@@ -39,7 +40,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 				return fmt.Errorf("resolve reference: %w", err)
 			}
 			ctx := cmd.Context()
-			rootManifest, err := oci.Inspect(ctx, target, ref)
+			rootManifest, configBytes, err := oci.InspectWithConfig(ctx, target, ref)
 			if err != nil {
 				return fmt.Errorf("read artifact manifest: %w", err)
 			}
@@ -54,6 +55,11 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			}
 			if err := os.MkdirAll(outputDir, 0o755); err != nil {
 				return fmt.Errorf("create output dir: %w", err)
+			}
+			// Self-contained images are pulled verbatim without external
+			// dependency resolution.
+			if selfcontained.IsMarked(configBytes) {
+				return pullSelfContained(cmd, target, reference, ref, rootManifest, outputDir, noCache)
 			}
 
 			var resolved []resolver.ResolvedArtifact
@@ -120,13 +126,17 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 // and an optional OCI manifest digest (empty when absent or for layout references).
 func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, string, error) {
 	if strings.HasPrefix(reference, "oci:") {
-		layoutPath, tag, _, err := oci.SplitReference(reference)
+		layoutPath, tag, digest, err := oci.SplitReference(reference)
 		if err != nil {
 			return nil, "", "", err
 		}
 		store, err := orasoci.New(layoutPath)
 		if err != nil {
 			return nil, "", "", fmt.Errorf("open OCI layout: %w", err)
+		}
+		if tag == "" {
+			// Digest-only layout reference: resolve by digest.
+			return store, digest, digest, nil
 		}
 		return store, tag, "", nil
 	}
@@ -137,6 +147,10 @@ func resolveTargetAndRef(reference string) (oras.ReadOnlyTarget, string, string,
 	reg, err := oci.NewRepository(repo)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("create repository: %w", err)
+	}
+	if tag == "" {
+		// Digest-only reference: resolve by digest instead of a tag.
+		return reg, digest, digest, nil
 	}
 	return reg, tag, digest, nil
 }

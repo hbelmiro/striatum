@@ -11,9 +11,14 @@ import (
 	"oras.land/oras-go/v2/content"
 )
 
-// safeLayerPath sanitizes a layer filename for extraction: rejects absolute paths
-// and ".." segments so the path cannot escape the artifact directory.
+// safeLayerPath sanitizes a layer filename for extraction: rejects absolute
+// paths, ".." segments, and backslashes (a path separator on Windows, so a
+// title containing one is not portable) so the path cannot escape the
+// artifact directory.
 func safeLayerPath(name string) (string, error) {
+	if strings.Contains(name, "\\") {
+		return "", fmt.Errorf("disallowed path (contains a backslash)")
+	}
 	cleaned := filepath.Clean(filepath.FromSlash(strings.TrimSpace(name)))
 	if cleaned == "" {
 		return "", fmt.Errorf("empty layer name")

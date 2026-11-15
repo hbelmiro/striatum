@@ -230,14 +230,14 @@ func validateGitEntrypoint(entrypoint string, files []string) error {
 func (d *GitDependency) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Source     string   `json:"source"`
-		URL       string   `json:"url"`
-		Ref       string   `json:"ref"`
-		Path      string   `json:"path,omitempty"`
-		Commit    string   `json:"commit,omitempty"`
-		Files     []string `json:"files,omitempty"`
-		Name      string   `json:"name,omitempty"`
-		Kind      string   `json:"kind,omitempty"`
-		Entrypoint string  `json:"entrypoint,omitempty"`
+		URL        string   `json:"url"`
+		Ref        string   `json:"ref"`
+		Path       string   `json:"path,omitempty"`
+		Commit     string   `json:"commit,omitempty"`
+		Files      []string `json:"files,omitempty"`
+		Name       string   `json:"name,omitempty"`
+		Kind       string   `json:"kind,omitempty"`
+		Entrypoint string   `json:"entrypoint,omitempty"`
 	}{
 		Source:     "git",
 		URL:        d.URL,
@@ -411,7 +411,10 @@ func ValidateLocal(m *Manifest, baseDir string) error {
 		return errors.New("manifest is nil")
 	}
 	for _, f := range m.Spec.Files {
-		if f == "" || strings.Contains(f, "..") || filepath.IsAbs(f) {
+		// Backslashes are rejected so the artifact round-trips: layer titles
+		// with backslashes cannot be extracted portably (they are path
+		// separators on Windows) and are refused by pull.
+		if f == "" || strings.Contains(f, "..") || strings.Contains(f, `\`) || filepath.IsAbs(f) {
 			return fmt.Errorf("invalid file path in spec.files: %q", f)
 		}
 		p := filepath.Join(baseDir, filepath.FromSlash(f))

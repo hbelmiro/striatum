@@ -15,6 +15,7 @@ import (
 	"github.com/hbelmiro/striatum/pkg/registry"
 	gitbackend "github.com/hbelmiro/striatum/pkg/registry/git"
 	"github.com/hbelmiro/striatum/pkg/resolver"
+	"github.com/hbelmiro/striatum/pkg/selfcontained"
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2"
 )
@@ -25,7 +26,7 @@ func newInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Pull and install an artifact into the appropriate target directory",
-		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor, claude, or codex). Use --project for project-level install. Accepts a local directory path, oci:/path:tag, registry reference, git: reference, or GitHub web URL (tree or blob path). For git: references whose path has no artifact.json, --kind selects the artifact kind when it cannot be inferred (a SKILL.md file infers Skill).",
+		Long:    "Resolves the artifact and dependencies, copies them to the install target. The artifact kind is auto-detected from the manifest. Requires --target (cursor, claude, or codex). Use --project for project-level install. Accepts a local directory path, OCI layout (oci:/path:tag, or oci:/path@sha256:... for the digest-only form), registry reference (including the digest-only host/repo/name@sha256:... form), git: reference, or GitHub web URL (tree or blob path). For git: references whose path has no artifact.json, --kind selects the artifact kind when it cannot be inferred (a SKILL.md file infers Skill).",
 		Example: "  striatum install --target claude localhost:5000/artifacts/my-skill:1.0.0\n  striatum install --target claude oci:/path/to/layout:my-skill:1.0.0\n  striatum install --target claude .\n  striatum install --target claude --kind Skill git:https://github.com/org/skills.git@main#skills/my-skill",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -86,6 +87,11 @@ func reinstallEntry(cmd *cobra.Command, e *installer.InstalledEntry, entries []i
 		return reinstallError(e, entries, err)
 	}
 	cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
+	if e.SelfContained {
+		// Exported payloads live in the isolated self-contained cache and re-pull by
+		// their immutable source reference.
+		cacheDir = installer.SelfContainedCacheDir(e.Name, e.Version)
+	}
 	if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
 		if !os.IsNotExist(statErr) {
 			return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
@@ -94,7 +100,11 @@ func reinstallEntry(cmd *cobra.Command, e *installer.InstalledEntry, entries []i
 			e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
 			return reinstallError(e, entries, fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError))
 		}
-		if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
+		if e.SelfContained {
+			if err := repullSelfContainedToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
+				return reinstallError(e, entries, err)
+			}
+		} else if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
 			return reinstallError(e, entries, err)
 		}
 	}
@@ -288,6 +298,18 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			return err
 		}
 		rootManifest = m
+		// A cached ordinary entry must never shadow a self-contained image
+		// published under the same name@version, and a self-contained image must never be
+		// pulled into the ordinary cache. Check the referenced image for the
+		// self-contained marker before trusting the cache; for remote references the
+		// check is best-effort so offline installs keep working.
+		if rootManifest != nil && rootManifest.Kind == "Skill" && mayReferenceSelfContained(reference) {
+			if t, r, _, resolveErr := resolveTargetAndRef(reference); resolveErr == nil {
+				if _, m, cfg, loadErr := oci.LoadImage(ctx, t, r); loadErr == nil && selfcontained.IsMarked(cfg) {
+					return runSelfContainedInstall(cmd, reference, t, r, m, target, projectPath, force)
+				}
+			}
+		}
 	}
 	if rootManifest == nil {
 		if strings.HasPrefix(reference, "git:") {
@@ -368,9 +390,15 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
-			rootManifest, err = oci.Inspect(ctx, targetObj, ref)
+			var configBytes []byte
+			rootManifest, configBytes, err = oci.InspectWithConfig(ctx, targetObj, ref)
 			if err != nil {
 				return fmt.Errorf("read artifact manifest: %w", err)
+			}
+			// Self-contained images install as one unit without external
+			// dependency resolution.
+			if selfcontained.IsMarked(configBytes) {
+				return runSelfContainedInstall(cmd, reference, targetObj, ref, rootManifest, target, projectPath, force)
 			}
 		}
 	}

@@ -5,6 +5,7 @@ This walkthrough takes you through the full Striatum lifecycle, from creating an
 - Packed and pushed artifacts (skills and prompts) to an OCI registry
 - Pulled a skill with transitive **OCI** and **Git** dependencies, including a Prompt dependency
 - Installed and uninstalled a skill in Cursor
+- Published a self-contained image (root Skill plus full dependency closure) and consumed it by immutable digest
 
 ## Prerequisites
 
@@ -194,6 +195,35 @@ demo-out-git/
   example-skill-git/          # root artifact (from OCI)
   example-helper-a/            # OCI dependency
   striatum-demo-git-skill/     # Git dependency (cloned from GitHub)
+```
+
+## Step 7 — Publish and consume a self-contained image
+
+Ordinary pushes bundle only the artifact's own files; consumers resolve dependencies at pull/install time. `--self-contained` publishes one image that contains the root Skill and its complete dependency closure, with artifact-owned references rewritten to resolve inside the image — useful for consumers (like MLflow's Skill Registry) that extract only the referenced image:
+
+```bash
+ref=$(./striatum push --self-contained --print-digest localhost:5050/demo/example-skill:1.0.0)
+echo "$ref"
+# localhost:5050/demo/example-skill@sha256:...
+```
+
+`--print-digest` writes exactly one canonical reference line to stdout (diagnostics go to stderr), so it is safe in scripts. The digest-only reference selects that exact image forever, even after the tag is pushed again.
+
+Install it the usual way — the bundled closure is installed as one unit, with no dependency resolution and no access to the original dependency registries:
+
+```bash
+./striatum install --target cursor "$ref"
+# ~/.cursor/skills/example-skill/ contains SKILL.md plus deps/skills/... and deps/prompts/...
+```
+
+Inspect the image to see what was bundled and where each dependency came from:
+
+```bash
+./striatum inspect "$ref"
+# ...
+# Self-contained: v1 (dev.striatum.self-contained)
+# Bundled dependencies:
+#   - Skill example-helper-a@1.0.0 from ... (sha256:...)
 ```
 
 ## Cleanup
