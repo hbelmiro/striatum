@@ -175,3 +175,128 @@ func TestRewriteLinks_MultipleLinksPerLine(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// A four-backtick fence contains three-backtick example fences; links inside
+// the block (including inside the example fence) must stay untouched, and
+// links after the real closing fence must be rewritten.
+func TestRewriteLinks_FenceLengthTracking(t *testing.T) {
+	content := "before [p](../../prompts/review-policy/PROMPT.md)\n" +
+		"````markdown\n" +
+		"inside [p](../../prompts/review-policy/PROMPT.md)\n" +
+		"```\n" +
+		"still inside [p](../../prompts/review-policy/PROMPT.md)\n" +
+		"````\n" +
+		"after [p](../../prompts/review-policy/PROMPT.md)\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	want := "before [p](deps/prompts/review-policy/PROMPT.md)\n" +
+		"````markdown\n" +
+		"inside [p](../../prompts/review-policy/PROMPT.md)\n" +
+		"```\n" +
+		"still inside [p](../../prompts/review-policy/PROMPT.md)\n" +
+		"````\n" +
+		"after [p](deps/prompts/review-policy/PROMPT.md)\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Destinations may contain balanced parentheses.
+func TestRewriteLinks_BalancedParentheses(t *testing.T) {
+	tree := []TreeArtifact{
+		{Kind: "Skill", Name: "root", Files: []string{"SKILL.md"}, IsRoot: true},
+		{Kind: "Prompt", Name: "review-policy", Files: []string{"PROMPT.md", "helpers/review(policy).md"}},
+	}
+	content := "See [x](../../prompts/review-policy/helpers/review(policy).md).\n"
+	out, err := RewriteLinks([]byte(content), tree[0], "SKILL.md", tree)
+	if err != nil {
+		t.Fatalf("RewriteLinks: %v", err)
+	}
+	want := "See [x](deps/prompts/review-policy/helpers/review(policy).md).\n"
+	if string(out) != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+}
+
+// Quoted HTML src and href attributes referencing artifact-owned files are
+// rewritten; external URLs are untouched.
+func TestRewriteLinks_HTMLAttributes(t *testing.T) {
+	content := "<img src=\"../../prompts/review-policy/PROMPT.md\" alt=\"x\"> " +
+		"<a href='../../prompts/review-policy/PROMPT.md'>policy</a> " +
+		"<img src=\"https://example.com/logo.png\">\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	want := "<img src=\"deps/prompts/review-policy/PROMPT.md\" alt=\"x\"> " +
+		"<a href='deps/prompts/review-policy/PROMPT.md'>policy</a> " +
+		"<img src=\"https://example.com/logo.png\">\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// An HTML attribute pointing at an undeclared artifact-owned file fails
+// clearly instead of silently leaving the image broken.
+func TestRewriteLinks_HTMLAttributeUndeclaredErrors(t *testing.T) {
+	_, err := RewriteLinks([]byte("<img src=\"../../prompts/review-policy/SECRET.png\">\n"), rootSkill(), "SKILL.md", testTree())
+	if err == nil {
+		t.Fatal("expected error for undeclared artifact-owned HTML reference")
+	}
+}
+
+// A line ending exactly with "src=" must not panic the scanner.
+func TestRewriteLinks_LineEndingWithAttrName(t *testing.T) {
+	content := "Use the attribute src=\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("got %q, want unchanged", got)
+	}
+}
+
+// Prose quoting an attribute value must be left alone; only attributes
+// inside actual HTML tags are rewritten.
+func TestRewriteLinks_ProseAttributeUntouched(t *testing.T) {
+	content := "Type src=\"../../prompts/review-policy/PROMPT.md\" in your editor.\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("prose attribute rewritten: %q", got)
+	}
+	// Prose quoting an undeclared artifact path must not fail the build.
+	if _, err := RewriteLinks([]byte("See src=\"../../prompts/review-policy/SECRET.png\" docs.\n"), rootSkill(), "SKILL.md", testTree()); err != nil {
+		t.Fatalf("prose undeclared path errored: %v", err)
+	}
+}
+
+// A closing fence with trailing whitespace still closes the block.
+func TestRewriteLinks_ClosingFenceTrailingWhitespace(t *testing.T) {
+	content := "```go\n[x](../../prompts/review-policy/PROMPT.md)\n``` \nafter [p](../../prompts/review-policy/PROMPT.md)\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	want := "```go\n[x](../../prompts/review-policy/PROMPT.md)\n``` \nafter [p](deps/prompts/review-policy/PROMPT.md)\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Prose attribute values appearing AFTER a closed HTML tag must be left
+// alone: the backwards scan hits the tag's '>' first.
+func TestRewriteLinks_ProseAfterClosedTag(t *testing.T) {
+	content := "Click <a href='https://example.com'>here</a> then type src=\"../../prompts/review-policy/PROMPT.md\" in prose.\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("prose after closed tag rewritten: %q", got)
+	}
+}
+
+// Escaped parentheses in destinations are unescaped for resolution.
+func TestRewriteLinks_EscapedParentheses(t *testing.T) {
+	tree := []TreeArtifact{
+		{Kind: "Skill", Name: "root", Files: []string{"SKILL.md"}, IsRoot: true},
+		{Kind: "Prompt", Name: "review-policy", Files: []string{"PROMPT.md", "helpers/review(1).md"}},
+	}
+	content := "See [x](../../prompts/review-policy/helpers/review\\(1\\).md).\n"
+	out, err := RewriteLinks([]byte(content), tree[0], "SKILL.md", tree)
+	if err != nil {
+		t.Fatalf("RewriteLinks: %v", err)
+	}
+	want := "See [x](deps/prompts/review-policy/helpers/review(1).md).\n"
+	if string(out) != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+}

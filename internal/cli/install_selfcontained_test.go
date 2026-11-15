@@ -317,6 +317,52 @@ func TestPull_SelfContainedImage_NoCacheFlag(t *testing.T) {
 	}
 }
 
+// Pulling a different self-contained image with --no-cache must clear the
+// previous extraction: the output is exactly the new image's payload, not a
+// mix with the old image's files.
+func TestPull_SelfContainedNoCacheClearsStaleFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	// Image A has an extra helper file; image B does not.
+	writeLocalSkill(t, project, "stale", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md":     "---\nname: stale\n---\nIMAGE A\n",
+		"helpers/a.md": "only in A",
+	})
+	layoutA := filepath.Join(project, "distA")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layoutA); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalSkill(t, project, "stale", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: stale\n---\nIMAGE B\n",
+	})
+	layoutB := filepath.Join(project, "distB")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layoutB); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := runCLI(t, "pull", "--no-cache", "-o", outDir, "oci:"+layoutA+":stale:1.0.0"); err != nil {
+		t.Fatalf("pull A: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "stale", "helpers", "a.md")); err != nil {
+		t.Fatalf("image A helper missing: %v", err)
+	}
+	if _, err := runCLI(t, "pull", "--no-cache", "-o", outDir, "oci:"+layoutB+":stale:1.0.0"); err != nil {
+		t.Fatalf("pull B: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "stale", "helpers", "a.md")); !os.IsNotExist(err) {
+		t.Errorf("stale file from image A survived pulling image B: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(outDir, "stale", "SKILL.md"))
+	if !strings.Contains(string(content), "IMAGE B") {
+		t.Errorf("output content = %q, want IMAGE B", content)
+	}
+}
+
 func TestInstall_OrdinaryImageUnaffectedByExportPaths(t *testing.T) {
 	// An ordinary (non-export) image still installs through the normal path
 	// even when an self-contained cache entry with the same name@version exists.

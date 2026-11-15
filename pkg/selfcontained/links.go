@@ -74,17 +74,21 @@ func RewriteLinks(content []byte, owner TreeArtifact, ownerFile string, tree []T
 		return content, nil
 	}
 	lines := strings.Split(string(content), "\n")
-	fence := byte(0)
+	var fenceMarker byte
+	var fenceLen int
 	for i, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		if fence != 0 {
-			if isFenceLine(trimmed, fence) {
-				fence = 0
+		if fenceMarker != 0 {
+			// A fence closes only on a marker-only line at least as long as
+			// the opening fence, so a shorter fence inside the block (a
+			// Markdown example) does not close it.
+			if isClosingFence(trimmed, fenceMarker, fenceLen) {
+				fenceMarker, fenceLen = 0, 0
 			}
 			continue
 		}
-		if m := openingFence(trimmed); m != 0 {
-			fence = m
+		if m, l := openingFence(trimmed); m != 0 {
+			fenceMarker, fenceLen = m, l
 			continue
 		}
 		rewritten, err := rewriteLine(line, owner, ownerFile, tree)
@@ -96,27 +100,41 @@ func RewriteLinks(content []byte, owner TreeArtifact, ownerFile string, tree []T
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
-// isFenceLine reports whether the line closes a fence of marker c.
-func isFenceLine(trimmed string, c byte) bool {
-	return openingFence(trimmed) == c
-}
-
-// openingFence returns the fence marker byte (backquote or tilde) when the
-// line opens a fenced code block, otherwise 0.
-func openingFence(trimmed string) byte {
+// openingFence returns the fence marker byte and its run length when the
+// line opens a fenced code block, otherwise (0, 0). An opening fence may be
+// followed by an info string.
+func openingFence(trimmed string) (byte, int) {
 	if len(trimmed) < 3 {
-		return 0
+		return 0, 0
 	}
 	c := trimmed[0]
 	if c != '`' && c != '~' {
-		return 0
+		return 0, 0
 	}
-	for i := range 3 {
+	n := 0
+	for n < len(trimmed) && trimmed[n] == c {
+		n++
+	}
+	if n < 3 {
+		return 0, 0
+	}
+	return c, n
+}
+
+// isClosingFence reports whether the line is a marker-only run of c, at
+// least openLen long, that closes an open fence. CommonMark permits
+// trailing whitespace on closing fences.
+func isClosingFence(trimmed string, c byte, openLen int) bool {
+	trimmed = strings.TrimRight(trimmed, " \t")
+	if len(trimmed) < openLen {
+		return false
+	}
+	for i := 0; i < len(trimmed); i++ {
 		if trimmed[i] != c {
-			return 0
+			return false
 		}
 	}
-	return c
+	return true
 }
 
 // linkEdit is a replacement of line[start:end] with text.
@@ -149,6 +167,20 @@ func rewriteLine(line string, owner TreeArtifact, ownerFile string, tree []TreeA
 				edits = append(edits, *edit)
 			}
 			i = next
+		case (c == 's' || c == 'h') && i+4 <= n:
+			// HTML img src / a href attributes in Markdown.
+			edit, next, err := parseHTMLAttribute(line, i, owner, ownerFile, tree)
+			if err != nil {
+				return "", err
+			}
+			if edit != nil {
+				edits = append(edits, *edit)
+			}
+			if next > i {
+				i = next
+			} else {
+				i++
+			}
 		default:
 			i++
 		}
@@ -160,6 +192,50 @@ func rewriteLine(line string, owner TreeArtifact, ownerFile string, tree []TreeA
 		edits = append(edits, *edit)
 	}
 	return applyEdits(line, edits), nil
+}
+
+// parseHTMLAttribute recognizes a quoted src= or href= attribute at index i
+// and returns an edit when its artifact-owned value was rewritten, plus the
+// index just after the attribute. Returns (nil, i, nil) when nothing
+// matched.
+func parseHTMLAttribute(line string, i int, owner TreeArtifact, ownerFile string, tree []TreeArtifact) (*linkEdit, int, error) {
+	nameLen := 0
+	if strings.HasPrefix(line[i:], "src=") {
+		nameLen = len("src=")
+	} else if strings.HasPrefix(line[i:], "href=") {
+		nameLen = len("href=")
+	}
+	if nameLen == 0 || i+nameLen >= len(line) {
+		return nil, i, nil
+	}
+	// Only rewrite attributes inside HTML tags: prose quoting "src=..."
+	// must be left alone. Scan backwards for the enclosing context; an
+	// attribute belongs to a tag when a '<' opens it with no '>' in between.
+	if !insideHTMLTag(line, i) {
+		return nil, i, nil
+	}
+	q := line[i+nameLen]
+	if q != '"' && q != '\'' {
+		return nil, i, nil
+	}
+	end := strings.IndexByte(line[i+nameLen+1:], q)
+	if end < 0 {
+		return nil, i, nil
+	}
+	valueStart := i + nameLen + 1
+	valueEnd := valueStart + end
+	dest := line[valueStart:valueEnd]
+	if dest == "" {
+		return nil, valueEnd + 1, nil
+	}
+	newDest, changed, err := resolveDest(owner, ownerFile, tree, dest)
+	if err != nil {
+		return nil, valueEnd + 1, err
+	}
+	if !changed {
+		return nil, valueEnd + 1, nil
+	}
+	return &linkEdit{start: valueStart, end: valueEnd, text: newDest}, valueEnd + 1, nil
 }
 
 // parseInlineLink parses the destination starting at index start (just after
@@ -194,15 +270,31 @@ func parseInlineLink(line string, start int, owner TreeArtifact, ownerFile strin
 		}
 		return editForDest(line, destStart, destEnd, after+1, owner, ownerFile, tree)
 	}
-	// Bare destination: ends at ')' or before a quoted title.
+	// Bare destination: ends at the ')' closing the link (tracking balanced
+	// parentheses, which are legal in destinations) or before a quoted
+	// title. Backslash escapes skip the next character.
 	destStart := i
 	destEnd := -1
+	depth := 0
 	for j := i; j < n; j++ {
-		if line[j] == ')' {
-			destEnd = j
-			break
+		c := line[j]
+		if c == '\\' && j+1 < n {
+			j++
+			continue
 		}
-		if (line[j] == ' ' || line[j] == '\t') && j+1 < n && line[j+1] == '"' {
+		if c == '(' {
+			depth++
+			continue
+		}
+		if c == ')' {
+			if depth == 0 {
+				destEnd = j
+				break
+			}
+			depth--
+			continue
+		}
+		if depth == 0 && (c == ' ' || c == '\t') && j+1 < n && line[j+1] == '"' {
 			destEnd = j
 			break
 		}
@@ -372,6 +464,9 @@ func resolveDest(owner TreeArtifact, ownerFile string, tree []TreeArtifact, dest
 	if dest == "" || strings.HasPrefix(dest, "#") || strings.HasPrefix(dest, "/") || hasScheme(dest) {
 		return dest, false, nil
 	}
+	// Unescape Markdown-escaped parentheses so "file\(1\).md" resolves as
+	// the declared file "file(1).md".
+	dest = strings.ReplaceAll(strings.ReplaceAll(dest, `\(`, "("), `\)`, ")")
 	filePart := dest
 	fragment := ""
 	if i := strings.Index(filePart, "#"); i >= 0 {
@@ -403,4 +498,23 @@ func resolveDest(owner TreeArtifact, ownerFile string, tree []TreeArtifact, dest
 	}
 	// Outside every closure artifact: user-project or other external content.
 	return dest, false, nil
+}
+
+// insideHTMLTag reports whether index i in line falls inside an HTML tag:
+// scanning backwards, a '<' (followed by a letter or '/') is reached before
+// any '>'.
+func insideHTMLTag(line string, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		switch line[j] {
+		case '>':
+			return false
+		case '<':
+			return j+1 < len(line) && (isAlphaByte(line[j+1]) || line[j+1] == '/')
+		}
+	}
+	return false
+}
+
+func isAlphaByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

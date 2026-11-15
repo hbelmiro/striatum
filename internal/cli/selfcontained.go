@@ -15,29 +15,73 @@ import (
 )
 
 // prepareSelfContained prepares the self-contained image of the root Skill
-// manifest: resolves the dependency closure (cache-first), pulls missing
-// dependencies into the ordinary cache, stages the transformed tree, and
-// validates it against the self-contained image consumer constraints. The caller must call
-// Prepared.Cleanup when done.
+// manifest: resolves the dependency closure, pulls missing dependencies
+// into the ordinary cache, stages the transformed tree, and validates it
+// against the self-contained image consumer constraints. The caller must
+// call Prepared.Cleanup when done.
 func prepareSelfContained(ctx context.Context, m *artifact.Manifest, projectRoot string) (*selfcontained.Prepared, error) {
 	var fetcher resolver.DependencyFetcher
 	if len(m.Dependencies) > 0 {
-		fetcher = NewCacheFirstFetcher(NewRemoteFetcher())
+		// Pinned OCI dependencies are inspected by their declared digest so
+		// the closure traversal (file lists, transitive dependencies) matches
+		// the pinned image even if the mutable tag has moved.
+		fetcher = &pinAwareFetcher{next: NewCacheFirstFetcher(NewRemoteFetcher())}
 	}
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	mat := func(ctx context.Context, r resolver.ResolvedArtifact) (selfcontained.DepMaterialization, error) {
 		cacheDir := installer.CacheDir(resolvedKind(r), r.Name, r.Version)
+		_, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json"))
+		cacheHit := statErr == nil
+		ociDep, isOCI := r.Dependency.(*artifact.OCIDependency)
+		gitDep, isGit := r.Dependency.(*artifact.GitDependency)
+
+		// Resolve the dependency's immutable identity once, up front: the
+		// declared pin when set, otherwise (cold cache only) the current tag
+		// or branch head. Extraction, the cache digest, and provenance all
+		// use this identity, so a tag moving mid-flight cannot desynchronize
+		// them. An unpinned warm cache is trusted as-is (offline preparation
+		// keeps working).
+		var identity string
+		switch {
+		case isOCI && ociDep.Digest != "":
+			identity = ociDep.Digest
+		case isGit && gitDep.Commit != "":
+			identity = gitDep.Commit
+		case isOCI && !cacheHit:
+			reg, err := oci.NewRepository(ociDep.RegistryHost + "/" + ociDep.Repository)
+			if err != nil {
+				return selfcontained.DepMaterialization{}, err
+			}
+			identity, err = oci.ResolveDigest(ctx, reg, ociDep.Tag)
+			if err != nil {
+				return selfcontained.DepMaterialization{}, err
+			}
+		case isGit && !cacheHit:
+			gitBack := &gitbackend.Backend{}
+			var err error
+			identity, err = gitBack.ResolveCommit(ctx, gitDep)
+			if err != nil {
+				return selfcontained.DepMaterialization{}, err
+			}
+		}
+
 		pullFn := func(ctx context.Context, _ string) error {
+			// pullFn only runs on a cache miss or a pin mismatch, both of
+			// which resolve identity above; pull by it so the extracted
+			// bytes match the recorded digest.
 			created, cleanup, err := pullToStagingDir(cacheRoot, r.Name, func(stagingDir string) error {
-				// Pinned OCI dependencies are fetched by digest so the
-				// image always bundles the pinned content, even if the
-				// mutable tag has moved.
-				if ociDep, ok := r.Dependency.(*artifact.OCIDependency); ok && ociDep.Digest != "" {
+				if isOCI {
 					reg, err := oci.NewRepository(ociDep.RegistryHost + "/" + ociDep.Repository)
 					if err != nil {
 						return err
 					}
-					return oci.Pull(ctx, reg, ociDep.Digest, stagingDir)
+					return oci.Pull(ctx, reg, identity, stagingDir)
+				}
+				// Pull the pinned/resolved commit exactly.
+				if gitDep != nil {
+					at := *gitDep
+					at.Commit = identity
+					return pullDependency(ctx, &at, stagingDir)
 				}
 				return pullDependency(ctx, r.Dependency, stagingDir)
 			})
@@ -48,41 +92,9 @@ func prepareSelfContained(ctx context.Context, m *artifact.Manifest, projectRoot
 			defer cleanup()
 			return atomicReplaceCacheDir(created, cacheDir)
 		}
-		// Pinned dependencies always verify the cache against the declared
-		// pin (a warm cache holding different content is re-pulled by
-		// digest). Unpinned dependencies trust a warm cache hit (the closure
-		// was resolved cache-first, and offline preparation keeps working);
-		// only a cache miss resolves the current tag digest.
 		var digestFn installer.DigestFunc
-		_, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json"))
-		cacheHit := statErr == nil
-		ociDep, isOCI := r.Dependency.(*artifact.OCIDependency)
-		gitDep, isGit := r.Dependency.(*artifact.GitDependency)
-		isPinned := (isOCI && ociDep.Digest != "") || (isGit && gitDep.Commit != "")
-		if isPinned || !cacheHit {
-			switch d := r.Dependency.(type) {
-			case *artifact.OCIDependency:
-				captured := d
-				digestFn = func(ctx context.Context) (string, error) {
-					if captured.Digest != "" {
-						return captured.Digest, nil // honor the declared pin
-					}
-					reg, err := oci.NewRepository(captured.RegistryHost + "/" + captured.Repository)
-					if err != nil {
-						return "", err
-					}
-					return oci.ResolveDigest(ctx, reg, captured.Tag)
-				}
-			case *artifact.GitDependency:
-				captured := d
-				gitBack := &gitbackend.Backend{}
-				digestFn = func(ctx context.Context) (string, error) {
-					if captured.Commit != "" {
-						return captured.Commit, nil // honor the declared pin
-					}
-					return gitBack.ResolveCommit(ctx, captured)
-				}
-			}
+		if identity != "" {
+			digestFn = func(context.Context) (string, error) { return identity, nil }
 		}
 		if err := installer.EnsureInCache(ctx, cacheDir, pullFn, digestFn); err != nil {
 			return selfcontained.DepMaterialization{}, err
@@ -122,6 +134,28 @@ func prepareSelfContained(ctx context.Context, m *artifact.Manifest, projectRoot
 		MaterializeDep: mat,
 		StagingParent:  cacheRoot,
 	})
+}
+
+// pinAwareFetcher inspects pinned OCI dependencies by their declared digest
+// instead of the mutable tag, so closure traversal always follows the
+// pinned manifests; everything else delegates to the wrapped fetcher.
+type pinAwareFetcher struct {
+	next resolver.DependencyFetcher
+}
+
+func (f *pinAwareFetcher) FetchManifest(ctx context.Context, dep artifact.Dependency) (*artifact.Manifest, error) {
+	if ociDep, ok := dep.(*artifact.OCIDependency); ok && ociDep.Digest != "" {
+		reg, err := oci.NewRepository(ociDep.RegistryHost + "/" + ociDep.Repository)
+		if err == nil {
+			if m, inspectErr := oci.Inspect(ctx, reg, ociDep.Digest); inspectErr == nil {
+				return m, nil
+			}
+		}
+		// Best-effort fallback to the wrapped (cache-first) fetcher so
+		// offline preparation with a warm cache still traverses the closure;
+		// the materializer verifies the payload against the pin regardless.
+	}
+	return f.next.FetchManifest(ctx, dep)
 }
 
 // preparedImageFrom builds the oci.PreparedImage for a self-contained image: the manifest

@@ -11,7 +11,7 @@ import (
 // digestShapedPattern matches "algorithm:hexchars" (algorithm per the OCI
 // digest spec, hex of any length): candidates that look like a digest but
 // fail validation get a clear error rather than silent path reinterpretation.
-var digestShapedPattern = regexp.MustCompile(`^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[0-9a-f]+$`)
+var digestShapedPattern = regexp.MustCompile(`^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[0-9a-fA-F]*$`)
 
 // SplitReference splits a reference into (repo-or-path, tag, digest).
 // For "oci:" references ("oci:/path:tag" or "oci:/path@sha256:<64hex>" for
@@ -47,7 +47,17 @@ func SplitReference(reference string) (repo, tag, digest string, err error) {
 		}
 		// Windows drive letter: "C:\path:tag" — first colon is the drive separator, not the tag delimiter.
 		if i == 1 && len(rest) > 2 && (rest[2] == '\\' || rest[2] == '/') {
-			i = strings.LastIndex(rest, ":")
+			if j := strings.LastIndex(rest, ":"); j > i {
+				i = j
+			} else {
+				// The drive colon is the only one: there is no tag. With a
+				// digest the identity is carried by the digest; otherwise
+				// the tag is genuinely missing.
+				if digest != "" {
+					return rest, "", digest, nil
+				}
+				return "", "", "", fmt.Errorf("invalid oci reference %q: missing tag", reference)
+			}
 		}
 		return rest[:i], rest[i+1:], digest, nil
 	}

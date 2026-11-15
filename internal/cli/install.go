@@ -88,11 +88,26 @@ func reinstallEntry(cmd *cobra.Command, e *installer.InstalledEntry, entries []i
 	}
 	cacheDir := installer.CacheDir(e.Kind, e.Name, e.Version)
 	if e.SelfContained {
-		// Exported payloads live in the isolated self-contained cache and re-pull by
-		// their immutable source reference.
+		// Self-contained payloads live in the isolated cache keyed by
+		// name@version, which multiple installs pinned to different digests
+		// can share. Verify the cached digest against this entry's immutable
+		// reference and only re-pull on a mismatch; when the cache already
+		// holds the pinned image, reinstall works even if the original
+		// source (e.g. a deleted local layout) is gone.
 		cacheDir = installer.SelfContainedCacheDir(e.Name, e.Version)
-	}
-	if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
+		if strings.TrimSpace(e.Registry) == "" {
+			e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
+			return reinstallError(e, entries, fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError))
+		}
+		pinnedDigest := e.Registry[strings.LastIndex(e.Registry, "@")+1:]
+		cachedDigest, digestErr := installer.ReadDigest(cacheDir)
+		_, manifestStatErr := os.Stat(filepath.Join(cacheDir, "artifact.json"))
+		if manifestStatErr != nil || digestErr != nil || cachedDigest != pinnedDigest {
+			if err := repullSelfContainedToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
+				return reinstallError(e, entries, err)
+			}
+		}
+	} else if _, statErr := os.Stat(filepath.Join(cacheDir, "artifact.json")); statErr != nil {
 		if !os.IsNotExist(statErr) {
 			return fmt.Errorf("check cache for %s@%s: %w", e.Name, e.Version, statErr)
 		}
@@ -100,11 +115,7 @@ func reinstallEntry(cmd *cobra.Command, e *installer.InstalledEntry, entries []i
 			e.LastError = "cannot re-pull: no source ref stored; re-install from original source"
 			return reinstallError(e, entries, fmt.Errorf("%s@%s: %s", e.Name, e.Version, e.LastError))
 		}
-		if e.SelfContained {
-			if err := repullSelfContainedToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
-				return reinstallError(e, entries, err)
-			}
-		} else if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
+		if err := repullToCache(cmd.Context(), e.Registry, cacheDir, e.Name); err != nil {
 			return reinstallError(e, entries, err)
 		}
 	}
@@ -301,12 +312,14 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 		// A cached ordinary entry must never shadow a self-contained image
 		// published under the same name@version, and a self-contained image must never be
 		// pulled into the ordinary cache. Check the referenced image for the
-		// self-contained marker before trusting the cache; for remote references the
-		// check is best-effort so offline installs keep working.
-		if rootManifest != nil && rootManifest.Kind == "Skill" && mayReferenceSelfContained(reference) {
-			if t, r, _, resolveErr := resolveTargetAndRef(reference); resolveErr == nil {
-				if _, m, cfg, loadErr := oci.LoadImage(ctx, t, r); loadErr == nil && selfcontained.IsMarked(cfg) {
-					return runSelfContainedInstall(cmd, reference, t, r, m, target, projectPath, force)
+		// self-contained marker before trusting the cache — regardless of the
+		// cached entry's kind, since an ordinary entry of any kind can share
+		// the name@version. For remote references the check is best-effort so
+		// offline installs keep working.
+		if rootManifest != nil && mayReferenceSelfContained(reference) {
+			if t, r, refDigest, resolveErr := resolveTargetAndRef(reference); resolveErr == nil {
+				if _, _, cfg, loadErr := oci.LoadImage(ctx, t, r); loadErr == nil && selfcontained.IsMarked(cfg) {
+					return runSelfContainedInstall(cmd, reference, t, r, refDigest, target, projectPath, force)
 				}
 			}
 		}
@@ -386,7 +399,8 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 				return fmt.Errorf("short ref %q is not in cache (cache-only); use a full reference (host/repo/name:version or oci:/path:name:version) to pull from a registry", reference)
 			}
 			var err error
-			targetObj, ref, _, err = resolveTargetAndRef(reference)
+			var refDigest string
+			targetObj, ref, refDigest, err = resolveTargetAndRef(reference)
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
@@ -398,7 +412,7 @@ func runInstall(cmd *cobra.Command, reference, target, projectPath string, force
 			// Self-contained images install as one unit without external
 			// dependency resolution.
 			if selfcontained.IsMarked(configBytes) {
-				return runSelfContainedInstall(cmd, reference, targetObj, ref, rootManifest, target, projectPath, force)
+				return runSelfContainedInstall(cmd, reference, targetObj, ref, refDigest, target, projectPath, force)
 			}
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/hbelmiro/striatum/pkg/artifact"
@@ -388,6 +389,18 @@ func validateFilePaths(files []string) error {
 }
 
 func extractFile(tree *object.Tree, srcPath, destPath string) error {
+	// Reject non-regular entries (symlinks, submodules) instead of writing
+	// their blob content as a regular file: a symlink exported that way
+	// carries the link-target string as content and is unusable. Executable
+	// files are regular content and must pass (go-git's IsRegular excludes
+	// the executable mode).
+	entry, err := tree.FindEntry(srcPath)
+	if err != nil {
+		return fmt.Errorf("file %q not found in tree: %w", srcPath, err)
+	}
+	if !entry.Mode.IsRegular() && entry.Mode != filemode.Executable {
+		return fmt.Errorf("file %q in tree is not a regular file (mode %s); symlinks and special entries are not supported", srcPath, entry.Mode)
+	}
 	f, err := tree.File(srcPath)
 	if err != nil {
 		return fmt.Errorf("file %q not found in tree: %w", srcPath, err)

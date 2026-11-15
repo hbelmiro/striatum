@@ -44,6 +44,9 @@ type DepProvenance struct {
 	Name           string          `json:"name"`
 	Version        string          `json:"version"`
 	Declared       json.RawMessage `json:"declared"`
+	// Manifest is the dependency's own original manifest, including its own
+	// dependency declarations, so transitive history stays inspectable.
+	Manifest       json.RawMessage `json:"manifest"`
 	ResolvedSource ResolvedSource  `json:"resolvedSource"`
 	ImagePaths     []string        `json:"imagePaths"`
 }
@@ -208,11 +211,16 @@ func Prepare(ctx context.Context, opts Options) (*Prepared, error) {
 		if err != nil {
 			return fail(fmt.Errorf("marshal dependency declaration for %s: %w", r.Name, err))
 		}
+		depManifestJSON, err := json.Marshal(r.Manifest)
+		if err != nil {
+			return fail(fmt.Errorf("marshal dependency manifest for %s: %w", r.Name, err))
+		}
 		prov.Dependencies = append(prov.Dependencies, DepProvenance{
 			Kind:           kind,
 			Name:           r.Name,
 			Version:        r.Version,
 			Declared:       declared,
+			Manifest:       depManifestJSON,
 			ResolvedSource: mat.Source,
 		})
 	}

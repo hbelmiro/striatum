@@ -152,8 +152,10 @@ func TestReinstall_SelfContainedFailurePaths(t *testing.T) {
 			t.Errorf("DB entry not flagged error: %+v", e)
 		}
 	}
-	// No half-written cache entry.
-	if _, err := os.Stat(installer.SelfContainedCacheDir("gone", "1.0.0")); !os.IsNotExist(err) {
+	// No half-written cache entry: no artifact.json may exist (an empty
+	// directory left behind by the failed pull is harmless and treated as a
+	// cache miss by the next attempt).
+	if _, err := os.Stat(filepath.Join(installer.SelfContainedCacheDir("gone", "1.0.0"), "artifact.json")); !os.IsNotExist(err) {
 		t.Errorf("half-written self-contained cache after failed reinstall: %v", err)
 	}
 
@@ -389,5 +391,248 @@ func TestPackSelfContained_PrepareFailureFailsCleanly(t *testing.T) {
 		if strings.HasPrefix(e.Name(), ".export-staging-") || strings.HasPrefix(e.Name(), ".staging-") {
 			t.Errorf("staging directory %q leaked under cache root", e.Name())
 		}
+	}
+}
+
+// Two self-contained installs of the same name@version pinned to different
+// digests share one cache directory; reinstall must give each entry the
+// image its own immutable reference pins, not whatever the cache last held.
+func TestReinstall_SelfContainedPerEntryDigest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	writeLocalSkill(t, project, "shared-nv", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: shared-nv\n---\nIMAGE A\n",
+	})
+	layoutA := filepath.Join(project, "distA")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layoutA); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalSkill(t, project, "shared-nv", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: shared-nv\n---\nIMAGE B\n",
+	})
+	layoutB := filepath.Join(project, "distB")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layoutB); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCLI(t, "install", "--target", "claude", "oci:"+layoutA+":shared-nv:1.0.0"); err != nil {
+		t.Fatalf("install A: %v", err)
+	}
+	if _, err := runCLI(t, "install", "--target", "cursor", "oci:"+layoutB+":shared-nv:1.0.0"); err != nil {
+		t.Fatalf("install B: %v", err)
+	}
+	// Remove the installed dirs so reinstall must re-copy from cache.
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "shared-nv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, ".cursor", "skills", "shared-nv")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCLI(t, "install", "--reinstall-all"); err != nil {
+		t.Fatalf("reinstall-all: %v", err)
+	}
+	claudeContent, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "shared-nv", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursorContent, err := os.ReadFile(filepath.Join(home, ".cursor", "skills", "shared-nv", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(claudeContent), "IMAGE A") {
+		t.Errorf("claude target reinstalled %q, want IMAGE A (its own pinned digest)", claudeContent)
+	}
+	if !strings.Contains(string(cursorContent), "IMAGE B") {
+		t.Errorf("cursor target reinstalled %q, want IMAGE B (its own pinned digest)", cursorContent)
+	}
+}
+
+// Reinstall of a self-contained entry must succeed from the warm cache even
+// when the original source (a local layout) has been deleted, provided the
+// cached digest matches the entry's pinned reference.
+func TestReinstall_SelfContainedWarmCacheWithDeletedLayout(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	writeLocalSkill(t, project, "warmcache", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: warmcache\n---\nx\n",
+	})
+	layout := filepath.Join(project, "dist")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layout); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "install", "--target", "claude", "oci:"+layout+":warmcache:1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove the installed dir and delete the layout; the cache still holds
+	// the pinned payload.
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "warmcache")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(layout); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCLI(t, "install", "--reinstall-all"); err != nil {
+		t.Fatalf("reinstall from warm cache with deleted layout: %v", err)
+	}
+	restored, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "warmcache", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reinstall did not restore from warm cache: %v", err)
+	}
+	if !strings.Contains(string(restored), "name: warmcache") {
+		t.Fatalf("restored content = %q", restored)
+	}
+}
+
+// A non-Skill ordinary cache entry (e.g. a Prompt) must not shadow a
+// self-contained Skill image published under the same name@version: the
+// marker check runs regardless of the cached entry's kind.
+func TestInstall_SelfContainedNotShadowedByPromptCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	writeLocalSkill(t, project, "shadowed-prompt", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: shadowed-prompt\n---\nSELF-CONTAINED PAYLOAD\n",
+	})
+	layout := filepath.Join(project, "dist")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layout); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poison the ordinary cache with a PROMPT entry of the same name@version.
+	poison := installer.CacheDir("Prompt", "shadowed-prompt", "1.0.0")
+	if err := os.MkdirAll(poison, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalArtifact(t, poison, "Prompt", "shadowed-prompt", "1.0.0", "PROMPT.md", map[string]string{
+		"PROMPT.md": "poisoned prompt",
+	})
+
+	if _, err := runCLI(t, "install", "--target", "claude", "oci:"+layout+":shadowed-prompt:1.0.0"); err != nil {
+		t.Fatalf("install shadowed by Prompt cache: %v", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "shadowed-prompt", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installed), "SELF-CONTAINED PAYLOAD") {
+		t.Fatalf("installed content = %q, want the self-contained payload", installed)
+	}
+}
+
+// Promoting a previously-installed dependency to an explicit root install
+// severs the InstalledWith relationship, so uninstalling the old parent no
+// longer treats it as an orphaned dependency.
+func TestInstall_SelfContainedPromotionClearsInstalledWith(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	writeLocalSkill(t, project, "promoted", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: promoted\n---\nx\n",
+	})
+	layout := filepath.Join(project, "dist")
+	if _, err := runCLI(t, "pack", "--self-contained", "-o", layout); err != nil {
+		t.Fatal(err)
+	}
+
+	// The artifact was previously installed as a dependency of "rootx".
+	seed := []installer.InstalledEntry{{
+		Name: "promoted", Kind: "Skill", Version: "0.9.0", Target: "claude",
+		InstalledWith: "rootx", Status: "ok", UpdatedAt: "2026-01-01T00:00:00Z",
+	}}
+	if err := installer.SaveInstalled(seed); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCLI(t, "install", "--target", "claude", "--force", "oci:"+layout+":promoted:1.0.0"); err != nil {
+		t.Fatalf("install promoted: %v", err)
+	}
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name == "promoted" {
+			if e.InstalledWith != "" {
+				t.Errorf("InstalledWith = %q after promotion to root, want empty", e.InstalledWith)
+			}
+			if !e.SelfContained {
+				t.Errorf("entry not marked self-contained: %+v", e)
+			}
+		}
+	}
+}
+
+// A pinned OCI dependency at an unreachable registry with a warm cache must
+// still prepare: the pin-aware fetcher falls back to the cache-first
+// fetcher, and the materializer verifies the cached payload against the pin.
+func TestPackSelfContained_OfflinePinnedDepWithWarmCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	pin := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	depManifest := `{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {"name": "offline-dep", "version": "1.0.0"},
+  "spec": {"entrypoint": "SKILL.md", "files": ["SKILL.md"]}
+}`
+	depCache := installer.CacheDir("Skill", "offline-dep", "1.0.0")
+	if err := os.MkdirAll(depCache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCache, "artifact.json"), []byte(depManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depCache, "SKILL.md"), []byte("cached content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.WriteDigest(depCache, pin); err != nil {
+		t.Fatal(err)
+	}
+
+	root := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "offline-root", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+		Dependencies: []artifact.Dependency{
+			&artifact.OCIDependency{RegistryHost: "reg.invalid", Repository: "skills/offline-dep", Tag: "1.0.0", Digest: pin},
+		},
+	}
+	rootJSON, _ := json.Marshal(root)
+	if err := os.WriteFile(filepath.Join(project, "artifact.json"), rootJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "SKILL.md"), []byte("---\nname: offline-root\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	layout := filepath.Join(project, "dist")
+	if out, err := runCLI(t, "pack", "--self-contained", "-o", layout); err != nil {
+		t.Fatalf("offline pack with warm pinned cache: %v (out: %s)", err, out)
+	}
+	store, titles := openExportLayout(t, layout, "offline-root:1.0.0")
+	depContent := fetchLayerByTitle(t, store, titles, "deps/skills/offline-dep/SKILL.md")
+	if !strings.Contains(depContent, "cached content") {
+		t.Fatalf("dep content = %q, want cached content", depContent)
 	}
 }

@@ -87,8 +87,8 @@ func TestCheckMLflowCompat_UnportablePaths(t *testing.T) {
 	dir := stageFiles(t, map[string]string{"SKILL.md": validSKILL})
 	for _, bad := range []string{
 		`a\b.md`, "../up.md", "a/../b.md", "/abs.md",
-		"a\nctrl.md",        // embedded newline
-		"a\x01ctrl.md",      // control byte
+		"a\nctrl.md",                             // embedded newline
+		"a\x01ctrl.md",                           // control byte
 		string([]byte{'a', 0xff, '.', 'm', 'd'}), // invalid UTF-8
 	} {
 		err := CheckMLflowCompat(dir, []string{"SKILL.md", bad}, MLflowOptions{})
@@ -169,5 +169,59 @@ func TestCheckMLflowCompat_SizeBudget(t *testing.T) {
 	}
 	if err := CheckMLflowCompat(dir, files, MLflowOptions{MaxSizeBytes: skSize + 99}); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatalf("over budget: err = %v, want size budget error", err)
+	}
+}
+
+// MLflow applies full Unicode case folding, so "Straße.md" and "STRASSE.md"
+// collide, and directory names participate in collisions.
+func TestCheckMLflowCompat_FullUnicodeFoldingCollisions(t *testing.T) {
+	dir := stageFiles(t, map[string]string{"SKILL.md": validSKILL})
+	// "ß" folds to "ss".
+	if err := CheckMLflowCompat(dir, []string{"SKILL.md", "Straße.md", "STRASSE.md"}, MLflowOptions{}); err == nil {
+		t.Error("expected collision between Straße.md and STRASSE.md under full case folding")
+	}
+	// Directory collisions: files differ, but their parent directories fold
+	// to the same name.
+	dir2 := stageFiles(t, map[string]string{"SKILL.md": validSKILL})
+	if err := CheckMLflowCompat(dir2, []string{"SKILL.md", "Assets/a.md", "assets/b.md"}, MLflowOptions{}); err == nil {
+		t.Error("expected collision between Assets/ and assets/ directories")
+	}
+	// A file and a directory folding to the same name collide.
+	dir3 := stageFiles(t, map[string]string{"SKILL.md": validSKILL})
+	if err := CheckMLflowCompat(dir3, []string{"SKILL.md", "assets.md", "Assets/a.md"}, MLflowOptions{}); err == nil {
+		t.Error("expected collision between file assets.md and directory Assets/")
+	}
+}
+
+// The frontmatter closing delimiter must be a complete "---" line;
+// "---not-a-delimiter" does not close it. CRLF frontmatter is accepted.
+func TestCheckMLflowCompat_FrontmatterDelimiterStrictness(t *testing.T) {
+	dir := stageFiles(t, map[string]string{"SKILL.md": "---\nname: x\n---not-a-delimiter\nbody\n"})
+	if err := CheckMLflowCompat(dir, []string{"SKILL.md"}, MLflowOptions{}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("err = %v, want unclosed frontmatter error", err)
+	}
+	dir2 := stageFiles(t, map[string]string{"SKILL.md": "---\r\nname: x\r\n---\r\nbody\r\n"})
+	if err := CheckMLflowCompat(dir2, []string{"SKILL.md"}, MLflowOptions{}); err != nil {
+		t.Fatalf("CRLF frontmatter rejected: %v", err)
+	}
+}
+
+// Paths the consumer rejects on other platforms are refused before
+// publication: reserved device names, illegal characters, and trailing
+// dots or spaces.
+func TestCheckMLflowCompat_ReservedAndIllegalSegments(t *testing.T) {
+	dir := stageFiles(t, map[string]string{"SKILL.md": validSKILL})
+	for _, bad := range []string{"CON.md", "com1.md", "assets/file:stream", "report?.md", "notes.md.", "trailing space .md", `a<b.md`, "a|b.md", "CON/x.md", "assets/LPT1/y.md"} {
+		if err := CheckMLflowCompat(dir, []string{"SKILL.md", bad}, MLflowOptions{}); err == nil {
+			t.Errorf("path %q: expected rejection", bad)
+		}
+	}
+}
+
+// A closing frontmatter delimiter with trailing whitespace is accepted.
+func TestCheckMLflowCompat_FrontmatterClosingTrailingSpace(t *testing.T) {
+	dir := stageFiles(t, map[string]string{"SKILL.md": "---\nname: x\n--- \nbody\n"})
+	if err := CheckMLflowCompat(dir, []string{"SKILL.md"}, MLflowOptions{}); err != nil {
+		t.Fatalf("frontmatter with trailing space on closing delimiter rejected: %v", err)
 	}
 }

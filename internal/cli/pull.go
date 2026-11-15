@@ -35,7 +35,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			target, ref, _, err := resolveTargetAndRef(reference)
+			target, ref, refDigest, err := resolveTargetAndRef(reference)
 			if err != nil {
 				return fmt.Errorf("resolve reference: %w", err)
 			}
@@ -59,7 +59,7 @@ By default, artifacts are also stored under the Striatum cache (STRIATUM_HOME or
 			// Self-contained images are pulled verbatim without external
 			// dependency resolution.
 			if selfcontained.IsMarked(configBytes) {
-				return pullSelfContained(cmd, target, reference, ref, rootManifest, outputDir, noCache)
+				return pullSelfContained(cmd, target, reference, ref, refDigest, outputDir, noCache)
 			}
 
 			var resolved []resolver.ResolvedArtifact

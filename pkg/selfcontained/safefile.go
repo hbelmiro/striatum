@@ -53,11 +53,11 @@ func CheckRegularFile(root, rel string) error {
 }
 
 // ReadFileSafe reads the file at root/rel after validating it is a regular
-// file with no symlink components. The read goes through os.OpenRoot, which
-// enforces containment on the opened directory handle itself, so a path
-// component swapped for an escaping symlink between the validation walk and
-// the open cannot make the read follow it outside root. The opened file
-// descriptor is stat'ed so a file swapped in as a FIFO cannot block the read.
+// file with no symlink components. The open itself is nonblocking and
+// containment-checked on the opened descriptor (see openContainedRegular),
+// so neither a path component swapped for an escaping symlink nor a file
+// swapped in as a FIFO between the validation walk and the open can make
+// the read block or escape root.
 func ReadFileSafe(root, rel string) ([]byte, error) {
 	if err := CheckRegularFile(root, rel); err != nil {
 		return nil, err
@@ -66,14 +66,9 @@ func ReadFileSafe(root, rel string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dirRoot, err := os.OpenRoot(root)
+	f, err := openContainedRegular(root, clean, rel)
 	if err != nil {
-		return nil, fmt.Errorf("open root %q: %w", root, err)
-	}
-	defer func() { _ = dirRoot.Close() }()
-	f, err := dirRoot.Open(clean)
-	if err != nil {
-		return nil, fmt.Errorf("open %q: %w", rel, err)
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 	fi, err := f.Stat()

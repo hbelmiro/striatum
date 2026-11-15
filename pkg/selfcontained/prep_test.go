@@ -215,6 +215,23 @@ func TestPrepare_MultiLevelClosure(t *testing.T) {
 			t.Errorf("provenance %s missing %q", prov, want)
 		}
 	}
+	// Each dependency's own manifest is preserved, including its own
+	// declarations (transitive history).
+	for _, d := range p.Provenance.Dependencies {
+		if len(d.Manifest) == 0 {
+			t.Errorf("dep %s has no manifest in provenance", d.Name)
+		}
+		var dm artifact.Manifest
+		if err := json.Unmarshal(d.Manifest, &dm); err != nil {
+			t.Errorf("dep %s manifest unmarshal: %v", d.Name, err)
+		}
+		if dm.Metadata.Name != d.Name {
+			t.Errorf("dep %s manifest name = %q", d.Name, dm.Metadata.Name)
+		}
+	}
+	if !strings.Contains(string(p.Provenance.Dependencies[0].Manifest), "review-policy") {
+		t.Errorf("generic-review's manifest must retain its own dependency declaration: %s", p.Provenance.Dependencies[0].Manifest)
+	}
 }
 
 func TestPrepare_NonSkillRootRejected(t *testing.T) {

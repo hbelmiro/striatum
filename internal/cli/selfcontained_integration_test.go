@@ -514,3 +514,102 @@ func TestIntegration_PullSelfContainedByMovedTag(t *testing.T) {
 		t.Errorf("cache stored digest = %s, want the resolved digest %s (content and digest must match)", storedDigest, digestB)
 	}
 }
+
+// A tag+digest reference must honor the supplied digest: after the tag moves
+// to different content, installing repo:tag@<digestA> still installs the
+// image digest A identifies.
+func TestIntegration_InstallHonorsSuppliedDigest(t *testing.T) {
+	host := startIntegrationRegistry(t)
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	writeLocalSkill(t, project, "supplied", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: supplied\n---\nCONTENT A\n",
+	})
+	tagRef := host + "/skills/supplied:1.0.0"
+	aOut, err := runCLI(t, "push", "--self-contained", "--print-digest", tagRef)
+	if err != nil {
+		t.Fatalf("push A: %v (out: %s)", err, aOut)
+	}
+	digestA := strings.TrimPrefix(strings.TrimSpace(aOut), host+"/skills/supplied@")
+
+	// The tag moves to different content.
+	if err := os.WriteFile(filepath.Join(project, "SKILL.md"), []byte("---\nname: supplied\n---\nCONTENT B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "push", "--self-contained", tagRef); err != nil {
+		t.Fatalf("push B: %v", err)
+	}
+
+	// Install by tag+digest: the supplied digest wins over the moved tag.
+	if _, err := runCLI(t, "install", "--target", "claude", tagRef+"@"+digestA); err != nil {
+		t.Fatalf("install by tag+digest: %v", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "supplied", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installed), "CONTENT A") {
+		t.Fatalf("installed content = %q, want the supplied digest's CONTENT A", installed)
+	}
+	// The DB pins the supplied digest.
+	entries, err := installer.LoadInstalled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name == "supplied" && e.Registry != host+"/skills/supplied@"+digestA {
+			t.Errorf("DB registry ref = %q, want the supplied digest ref", e.Registry)
+		}
+	}
+}
+
+// Installing or pulling with a tag+digest combination whose tag points at a
+// self-contained image but whose digest identifies an ordinary (unmarked)
+// image fails clearly instead of installing the unmarked image through the
+// verbatim self-contained path.
+func TestIntegration_TagDigestMismatchRejected(t *testing.T) {
+	host := startIntegrationRegistry(t)
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	// A self-contained image under the tag.
+	writeLocalSkill(t, project, "mismatch", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: mismatch\n---\nself-contained\n",
+	})
+	tagRef := host + "/skills/mismatch:1.0.0"
+	if out, err := runCLI(t, "push", "--self-contained", tagRef); err != nil {
+		t.Fatalf("push self-contained: %v (out: %s)", err, out)
+	}
+
+	// An ordinary (unmarked) image in the same repository, under a scratch
+	// tag; the main tag stays on the self-contained image.
+	writeLocalSkill(t, project, "mismatch", "1.0.0", "SKILL.md", map[string]string{
+		"SKILL.md": "---\nname: mismatch\n---\nordinary\n",
+	})
+	ordOut, err := runCLI(t, "push", "--print-digest", host+"/skills/mismatch:ordinary-scratch")
+	if err != nil {
+		t.Fatalf("push ordinary scratch: %v (out: %s)", err, ordOut)
+	}
+	ordinaryDigest := strings.TrimPrefix(strings.TrimSpace(ordOut), host+"/skills/mismatch@")
+
+	// tag (self-contained) + digest (ordinary): the re-inspect by digest must
+	// detect the mismatch and fail clearly.
+	_, err = runCLI(t, "install", "--target", "claude", tagRef+"@"+ordinaryDigest)
+	if err == nil || !strings.Contains(err.Error(), "does not identify a self-contained image") {
+		t.Fatalf("install err = %v, want clear mismatch rejection", err)
+	}
+	_, err = runCLI(t, "pull", "-o", t.TempDir(), tagRef+"@"+ordinaryDigest)
+	if err == nil || !strings.Contains(err.Error(), "does not identify a self-contained image") {
+		t.Fatalf("pull err = %v, want clear mismatch rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".claude", "skills", "mismatch")); !os.IsNotExist(statErr) {
+		t.Errorf("target written despite rejection: %v", statErr)
+	}
+}

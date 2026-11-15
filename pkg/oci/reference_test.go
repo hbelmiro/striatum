@@ -141,8 +141,30 @@ func TestSplitReference(t *testing.T) {
 			wantErr:   "invalid digest",
 		},
 		{
+			name:       "oci layout windows drive digest only",
+			reference:  `oci:C:\build@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789`,
+			wantRepo:   `C:\build`,
+			wantTag:    "",
+			wantDigest: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		},
+		{
+			name:      "oci layout windows drive no tag no digest",
+			reference: `oci:C:\build`,
+			wantErr:   "missing tag",
+		},
+		{
 			name:      "oci layout non-digest colon suffix rejected",
 			reference: "oci:/tmp/layout@md5:abcdef0123456789abcdef0123456789",
+			wantErr:   "invalid digest",
+		},
+		{
+			name:      "oci layout uppercase hex digest rejected",
+			reference: "oci:/tmp/layout@sha256:ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+			wantErr:   "invalid digest",
+		},
+		{
+			name:      "oci layout empty digest hex rejected",
+			reference: "oci:/tmp/layout@sha256:",
 			wantErr:   "invalid digest",
 		},
 

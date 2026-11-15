@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -10,16 +11,38 @@ import (
 	"github.com/hbelmiro/striatum/pkg/artifact"
 	"github.com/hbelmiro/striatum/pkg/installer"
 	"github.com/hbelmiro/striatum/pkg/oci"
+	"github.com/hbelmiro/striatum/pkg/selfcontained"
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2"
 )
 
-// runSelfContainedInstall installs a self-contained image. The payload is
-// pulled verbatim (root files, deps/ closure, provenance) into the isolated
-// self-contained cache and installed as one unit; dependency declarations in the
-// manifest are provenance only and are never re-resolved externally.
-func runSelfContainedInstall(cmd *cobra.Command, reference string, targetObj oras.ReadOnlyTarget, ref string, rootManifest *artifact.Manifest, target, projectPath string, force bool) error {
+// runSelfContainedInstall installs a self-contained image. The image's
+// immutable identity is resolved once (a digest supplied in the reference
+// wins; otherwise the tag is resolved a single time), and validation,
+// extraction, and the DB record all use that same digest, so a tag moving
+// mid-flight cannot pair one image's metadata with another's payload. The
+// payload is pulled verbatim into the isolated self-contained cache and
+// installed as one unit; dependency declarations in the manifest are
+// provenance only and are never re-resolved externally.
+func runSelfContainedInstall(cmd *cobra.Command, reference string, targetObj oras.ReadOnlyTarget, ref, suppliedDigest string, target, projectPath string, force bool) error {
 	ctx := cmd.Context()
+	digest := suppliedDigest
+	if digest == "" {
+		var err error
+		digest, err = oci.ResolveDigest(ctx, targetObj, ref)
+		if err != nil {
+			return fmt.Errorf("resolve digest: %w", err)
+		}
+	}
+	// Inspect by the immutable digest so the validated manifest and the
+	// extracted payload are the same image.
+	rootManifest, configBytes, err := oci.InspectWithConfig(ctx, targetObj, digest)
+	if err != nil {
+		return fmt.Errorf("read artifact manifest: %w", err)
+	}
+	if !selfcontained.IsMarked(configBytes) {
+		return fmt.Errorf("reference %q does not identify a self-contained image (the tag may have moved); resolve the reference again and retry", reference)
+	}
 	if err := artifact.Validate(rootManifest); err != nil {
 		return fmt.Errorf("invalid manifest: %w", err)
 	}
@@ -36,12 +59,6 @@ func runSelfContainedInstall(cmd *cobra.Command, reference string, targetObj ora
 		return err
 	}
 
-	// Canonical immutable reference for the DB: resolve by digest so
-	// reinstall keeps selecting this exact image even if the tag moves.
-	digest, err := oci.ResolveDigest(ctx, targetObj, ref)
-	if err != nil {
-		return fmt.Errorf("resolve digest: %w", err)
-	}
 	repo, _, _, splitErr := oci.SplitReference(reference)
 	if splitErr != nil {
 		return fmt.Errorf("parse reference: %w", splitErr)
@@ -73,9 +90,10 @@ func runSelfContainedInstall(cmd *cobra.Command, reference string, targetObj ora
 	}
 
 	exportCacheDir := installer.SelfContainedCacheDir(name, version)
-	// Pull by digest so the installed content matches the resolved image
-	// even if the tag moves between resolution and pull.
-	if err := ensureSelfContainedInCache(ctx, targetObj, pullRefFor(reference, ref, digest), name, exportCacheDir, digest); err != nil {
+	// Pull by the immutable digest (both registries and layout stores
+	// resolve by digest), so the installed content is exactly the image the
+	// digest identifies.
+	if err := ensureSelfContainedInCache(ctx, targetObj, digest, name, exportCacheDir, digest); err != nil {
 		return err
 	}
 
@@ -98,6 +116,9 @@ func runSelfContainedInstall(cmd *cobra.Command, reference string, targetObj ora
 			existing[i].LastError = ""
 			existing[i].UpdatedAt = now
 			existing[i].SelfContained = true
+			// This is now an explicit root install; any dependency
+			// relationship from a previous install no longer applies.
+			existing[i].InstalledWith = ""
 			replaced = true
 			break
 		}
@@ -147,44 +168,65 @@ func ensureSelfContainedInCache(ctx context.Context, targetObj oras.ReadOnlyTarg
 // repullSelfContainedToCache re-pulls a self-contained installation from its stored
 // (immutable) source reference into the isolated self-contained cache.
 func repullSelfContainedToCache(ctx context.Context, sourceRef, exportCacheDir, name string) error {
-	targetObj, ref, _, err := resolveTargetAndRef(sourceRef)
+	targetObj, ref, suppliedDigest, err := resolveTargetAndRef(sourceRef)
 	if err != nil {
 		return fmt.Errorf("resolve reference %q: %w", sourceRef, err)
 	}
-	digest, err := oci.ResolveDigest(ctx, targetObj, ref)
-	if err != nil {
-		return fmt.Errorf("resolve digest for %q: %w", sourceRef, err)
+	digest := suppliedDigest
+	if digest == "" {
+		digest, err = oci.ResolveDigest(ctx, targetObj, ref)
+		if err != nil {
+			return fmt.Errorf("resolve digest for %q: %w", sourceRef, err)
+		}
 	}
-	return ensureSelfContainedInCache(ctx, targetObj, ref, name, exportCacheDir, digest)
+	return ensureSelfContainedInCache(ctx, targetObj, digest, name, exportCacheDir, digest)
 }
 
-// pullSelfContained handles "striatum pull" of a self-contained image. With
-// noCache it pulls verbatim straight to outputDir/<name>/; otherwise the
-// payload is materialized through the isolated self-contained cache and
-// copied to the output directory. Either way there is no external dependency
-// resolution, and the pull resolves by digest so the content matches the
-// image the reference pointed at even if a tag moves mid-flight.
-func pullSelfContained(cmd *cobra.Command, targetObj oras.ReadOnlyTarget, reference, ref string, rootManifest *artifact.Manifest, outputDir string, noCache bool) error {
+// pullSelfContained handles "striatum pull" of a self-contained image. The
+// image's immutable identity is resolved once (a supplied digest wins),
+// metadata is re-read by that digest, and extraction uses it, so a tag
+// moving mid-flight cannot pair one image's metadata with another's payload.
+// With noCache it pulls verbatim straight to outputDir/<name>/ (clearing any
+// previous extraction so the output is exactly the image's payload);
+// otherwise the payload is materialized through the isolated self-contained
+// cache and copied to the output directory. Either way there is no external
+// dependency resolution.
+func pullSelfContained(cmd *cobra.Command, targetObj oras.ReadOnlyTarget, reference, ref, suppliedDigest string, outputDir string, noCache bool) error {
 	ctx := cmd.Context()
+	digest := suppliedDigest
+	if digest == "" {
+		var err error
+		digest, err = oci.ResolveDigest(ctx, targetObj, ref)
+		if err != nil {
+			return fmt.Errorf("resolve digest: %w", err)
+		}
+	}
+	rootManifest, configBytes, err := oci.InspectWithConfig(ctx, targetObj, digest)
+	if err != nil {
+		return fmt.Errorf("read artifact manifest: %w", err)
+	}
+	if !selfcontained.IsMarked(configBytes) {
+		return fmt.Errorf("reference %q does not identify a self-contained image (the tag may have moved); resolve the reference again and retry", reference)
+	}
 	name := rootManifest.Metadata.Name
 	version := rootManifest.Metadata.Version
 	if err := checkSafeNameVersion(name, version); err != nil {
 		return err
 	}
-	digest, err := oci.ResolveDigest(ctx, targetObj, ref)
-	if err != nil {
-		return fmt.Errorf("resolve digest: %w", err)
-	}
-	pullRef := pullRefFor(reference, ref, digest)
 	if noCache {
-		if err := oci.Pull(ctx, targetObj, pullRef, outputDir); err != nil {
+		// Clear any previous extraction so the output is exactly this
+		// image's payload, not a mix with an older image's files.
+		if err := os.RemoveAll(filepath.Join(outputDir, name)); err != nil {
+			return fmt.Errorf("clear output dir: %w", err)
+		}
+		if err := oci.Pull(ctx, targetObj, digest, outputDir); err != nil {
 			return fmt.Errorf("pull self-contained image: %w", err)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
 		return nil
 	}
 	exportCacheDir := installer.SelfContainedCacheDir(name, version)
-	if err := ensureSelfContainedInCache(ctx, targetObj, pullRef, name, exportCacheDir, digest); err != nil {
+	if err := ensureSelfContainedInCache(ctx, targetObj, digest, name, exportCacheDir, digest); err != nil {
 		return err
 	}
 	if err := installer.InstallToTarget(exportCacheDir, outputDir, name); err != nil {
@@ -192,16 +234,6 @@ func pullSelfContained(cmd *cobra.Command, targetObj oras.ReadOnlyTarget, refere
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Pulled to", outputDir)
 	return nil
-}
-
-// pullRefFor returns the reference to pull with: for oci: layout
-// references the resolved tag (layout stores are tag-indexed), otherwise
-// the immutable digest.
-func pullRefFor(reference, ref, digest string) string {
-	if strings.HasPrefix(reference, "oci:") {
-		return ref
-	}
-	return digest
 }
 
 // checkSafeNameVersion rejects manifest names and versions that could

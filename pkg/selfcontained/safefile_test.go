@@ -209,3 +209,28 @@ func assertCheckFails(t *testing.T, root, rel, wantContain string) {
 		t.Fatalf("CheckRegularFile(%q) err = %q, want containing %q", rel, err, wantContain)
 	}
 }
+
+// A case-variant path (legal only on case-insensitive filesystems, common
+// on macOS) must open and read successfully; the descriptor's canonical
+// casing may differ from the supplied root casing.
+func TestReadFileSafe_CaseVariantPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "CaseDir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "CaseDir", "File.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Request with different casing; on case-sensitive filesystems the open
+	// itself fails, which is the correct behavior there.
+	data, err := ReadFileSafe(root, "casedir/file.txt")
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("case-sensitive filesystem: case-variant path cannot open")
+		}
+		t.Fatalf("ReadFileSafe with case-variant path: %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("data = %q, want content", data)
+	}
+}
