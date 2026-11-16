@@ -47,11 +47,19 @@ func (a TreeArtifact) virtualPath(file string) string {
 
 // imagePath is the file's location in the self-contained image.
 func (a TreeArtifact) imagePath(file string) string {
+	return path.Join(a.imageRootDir(), file)
+}
+
+// imageRootDir is the artifact's own directory in the self-contained image:
+// the image root for the root artifact, deps/<kindDir>/<name> otherwise. Every
+// declared file lives under it, so a Markdown link to the artifact's install
+// directory is rewritten to point here.
+func (a TreeArtifact) imageRootDir() string {
 	if a.IsRoot {
-		return path.Clean(file)
+		return "."
 	}
 	kd, _ := kindDirFor(a.Kind)
-	return path.Join("deps", kd, a.Name, file)
+	return path.Join("deps", kd, a.Name)
 }
 
 // IsMarkdown reports whether the file should be scanned for Markdown links.
@@ -62,13 +70,17 @@ func IsMarkdown(file string) bool {
 
 // RewriteLinks rewrites Markdown link destinations in content (a file named
 // ownerFile owned by artifact owner) so that references to artifact-owned
-// files in the closure resolve inside the self-contained image tree.
+// content in the closure resolve inside the self-contained image tree.
 //
-// Destinations that resolve into a closure artifact's virtual root but do not
-// match a declared file produce an error: exporting would otherwise produce an
-// image whose references point at missing content. Destinations outside the
-// closure (URLs, anchors, absolute paths, user-project references) are left
-// byte-for-byte unchanged. Code fences and inline code spans are not scanned.
+// Destinations naming a declared file of a closure artifact are rewritten to
+// that file's image path; destinations naming a closure artifact's install
+// directory (e.g. "../other-skill/") are rewritten to the artifact's image
+// directory, which holds all its declared files. Destinations that resolve
+// inside a closure artifact but name an undeclared file, and destinations
+// outside the closure (URLs, anchors, absolute paths, user-project
+// references), are left byte-for-byte unchanged, matching regular pack, which
+// never inspects file contents. Code fences and inline code spans are not
+// scanned.
 func RewriteLinks(content []byte, owner TreeArtifact, ownerFile string, tree []TreeArtifact) ([]byte, error) {
 	if !IsMarkdown(ownerFile) {
 		return content, nil
@@ -430,6 +442,14 @@ func relSlash(fromDir, toFile string) (string, error) {
 		}
 		ups = append(ups, "..")
 	}
+	if path.Clean(toFile) == "." {
+		// Target is a directory (e.g. the image root): only the ups matter.
+		rel := strings.Join(ups, "/")
+		if rel == "" {
+			return ".", nil
+		}
+		return rel, nil
+	}
 	rel := strings.Join(append(ups, toParts[i:]...), "/")
 	if rel == "" {
 		return ".", nil
@@ -457,9 +477,10 @@ func hasScheme(dest string) bool {
 }
 
 // resolveDest maps one link destination to its exported-image equivalent.
-// changed is false when the destination is not artifact-owned (or needs no
-// change). An error is returned for artifact-owned destinations that do not
-// match a declared file of a closure artifact.
+// changed is false when the destination needs no change: destinations that
+// resolve inside a closure artifact but name an undeclared file are left
+// unchanged (the file ships in no image, regular or self-contained), as are
+// destinations outside the closure.
 func resolveDest(owner TreeArtifact, ownerFile string, tree []TreeArtifact, dest string) (string, bool, error) {
 	if dest == "" || strings.HasPrefix(dest, "#") || strings.HasPrefix(dest, "/") || hasScheme(dest) {
 		return dest, false, nil
@@ -476,6 +497,7 @@ func resolveDest(owner TreeArtifact, ownerFile string, tree []TreeArtifact, dest
 	if filePart == "" {
 		return dest, false, nil
 	}
+	trailingSlash := strings.HasSuffix(filePart, "/")
 	srcVirtualDir := path.Dir(owner.virtualPath(ownerFile))
 	resolved := path.Clean(path.Join(srcVirtualDir, filePart))
 	for _, a := range tree {
@@ -484,11 +506,22 @@ func resolveDest(owner TreeArtifact, ownerFile string, tree []TreeArtifact, dest
 			continue
 		}
 		if resolved == root {
-			return "", false, fmt.Errorf("link %q references the directory of artifact %s/%s; link to a declared file instead", dest, a.Kind, a.Name)
+			// A link to the artifact's install directory: the image
+			// materializes that directory with all declared files.
+			newDest, err := relSlash(path.Dir(owner.imagePath(ownerFile)), a.imageRootDir())
+			if err != nil {
+				return "", false, fmt.Errorf("relink %q: %w", dest, err)
+			}
+			if trailingSlash && newDest != "." {
+				newDest += "/"
+			}
+			return newDest + fragment, true, nil
 		}
 		rel := strings.TrimPrefix(resolved, root+"/")
 		if !slices.Contains(a.Files, rel) {
-			return "", false, fmt.Errorf("link %q targets %q of artifact %s/%s, which is not declared in its spec.files; add the file to the artifact or remove the reference", dest, rel, a.Kind, a.Name)
+			// Undeclared file: ships in no image; keep the destination
+			// verbatim, as regular pack does.
+			return dest, false, nil
 		}
 		newDest, err := relSlash(path.Dir(owner.imagePath(ownerFile)), a.imagePath(rel))
 		if err != nil {

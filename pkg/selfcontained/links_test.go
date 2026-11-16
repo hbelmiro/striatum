@@ -1,7 +1,6 @@
 package selfcontained
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -148,22 +147,130 @@ func TestRewriteLinks_NonMarkdownUntouched(t *testing.T) {
 	}
 }
 
-func TestRewriteLinks_UndeclaredArtifactOwnedFileErrors(t *testing.T) {
-	_, err := RewriteLinks([]byte("See [x](../../prompts/review-policy/SECRET.md).\n"), rootSkill(), "SKILL.md", testTree())
-	if err == nil {
-		t.Fatal("expected error for undeclared artifact-owned reference")
-	}
-	for _, want := range []string{"SKILL.md", "SECRET.md", "review-policy"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %q, want containing %q", err, want)
-		}
+func TestRewriteLinks_ArtifactDirectoryReferenceRewritten(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](../../prompts/review-policy).\n")
+	want := "See [x](deps/prompts/review-policy).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
-func TestRewriteLinks_ArtifactDirectoryReferenceErrors(t *testing.T) {
-	_, err := RewriteLinks([]byte("See [x](../../prompts/review-policy).\n"), rootSkill(), "SKILL.md", testTree())
-	if err == nil {
-		t.Fatal("expected error for artifact-directory reference")
+func TestRewriteLinks_ArtifactDirectoryReferenceKeepsTrailingSlash(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](../../prompts/review-policy/).\n")
+	want := "See [x](deps/prompts/review-policy/).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceWithFragment(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](../../prompts/review-policy/#rules).\n")
+	want := "See [x](deps/prompts/review-policy/#rules).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceFromDep(t *testing.T) {
+	owner := testTree()[1] // other-skill
+	got := rewrite(t, owner, "SKILL.md", "See [x](../../prompts/review-policy/) and [root](../my-skill/).\n")
+	// From deps/skills/other-skill/: prompt dep is two levels up under
+	// deps/prompts/; the root artifact's directory is the image root.
+	want := "See [x](../../prompts/review-policy/) and [root](../../../).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceToRootArtifact(t *testing.T) {
+	// From helpers/rubric.md (image path helpers/rubric.md), a link back to
+	// the root artifact's own directory resolves to the image root.
+	got := rewrite(t, rootSkill(), "helpers/rubric.md", "See [x](../).\n")
+	want := "See [x](../).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceDefinition(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "[policy]: ../../prompts/review-policy/\nSee [policy].\n")
+	want := "[policy]: deps/prompts/review-policy/\nSee [policy].\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceHTMLAttribute(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "<a href=\"../../prompts/review-policy/\">policy</a>\n")
+	want := "<a href=\"deps/prompts/review-policy/\">policy</a>\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_UndeclaredArtifactOwnedFileUntouched(t *testing.T) {
+	content := "See [x](../../prompts/review-policy/SECRET.md) and [y](../../prompts/review-policy/SECRET.md#part).\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("got %q, want unchanged %q", got, content)
+	}
+}
+
+// A link from the root SKILL.md to the root artifact's own directory resolves
+// to the image root; the trailing-slash guard keeps the output a bare ".".
+func TestRewriteLinks_RootSelfDirectoryReference(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](.) and [y](./) and [z](./#frag).\n")
+	want := "See [x](.) and [y](.) and [z](.#frag).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Only the artifact's install root is special-cased: a link to a
+// subdirectory of a closure artifact is an undeclared path and passes
+// through verbatim, as does an undeclared file inside a declared
+// subdirectory.
+func TestRewriteLinks_ArtifactSubdirectoryReferenceUntouched(t *testing.T) {
+	content := "See [x](../../prompts/review-policy/examples/) and [y](../../prompts/review-policy/examples/MISSING.md).\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("got %q, want unchanged %q", got, content)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceAngleBracket(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](<../../prompts/review-policy/>).\n")
+	want := "See [x](<deps/prompts/review-policy/>).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLinks_ArtifactDirectoryReferenceWithTitle(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](../../prompts/review-policy/ \"Policy\").\n")
+	want := "See [x](deps/prompts/review-policy/ \"Policy\").\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Redundant segments normalize away; the trailing slash survives.
+func TestRewriteLinks_ArtifactDirectoryReferenceRedundantSegments(t *testing.T) {
+	got := rewrite(t, rootSkill(), "SKILL.md", "See [x](../../prompts/review-policy/./).\n")
+	want := "See [x](deps/prompts/review-policy/).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// A directory link from a dep file inside a subdirectory targets its own
+// artifact's install root, one level up in the image tree.
+func TestRewriteLinks_DirectoryReferenceFromDepSubdirectory(t *testing.T) {
+	owner := testTree()[2] // review-policy, file examples/case.md
+	got := rewrite(t, owner, "examples/case.md", "See [x](../).\n")
+	want := "See [x](../).\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
@@ -232,12 +339,13 @@ func TestRewriteLinks_HTMLAttributes(t *testing.T) {
 	}
 }
 
-// An HTML attribute pointing at an undeclared artifact-owned file fails
-// clearly instead of silently leaving the image broken.
-func TestRewriteLinks_HTMLAttributeUndeclaredErrors(t *testing.T) {
-	_, err := RewriteLinks([]byte("<img src=\"../../prompts/review-policy/SECRET.png\">\n"), rootSkill(), "SKILL.md", testTree())
-	if err == nil {
-		t.Fatal("expected error for undeclared artifact-owned HTML reference")
+// An HTML attribute pointing at an undeclared artifact-owned file is left
+// unchanged, matching regular pack.
+func TestRewriteLinks_HTMLAttributeUndeclaredUntouched(t *testing.T) {
+	content := "<img src=\"../../prompts/review-policy/SECRET.png\">\n"
+	got := rewrite(t, rootSkill(), "SKILL.md", content)
+	if got != content {
+		t.Fatalf("got %q, want unchanged %q", got, content)
 	}
 }
 
