@@ -48,11 +48,19 @@ func loadArtifactFromOCI(ctx context.Context, target oras.ReadOnlyTarget, ref st
 // fetches the OCI manifest, then fetches the config blob and unmarshals it as
 // artifact manifest.
 func Inspect(ctx context.Context, target oras.ReadOnlyTarget, ref string) (*artifact.Manifest, error) {
-	_, m, _, err := loadArtifactFromOCI(ctx, target, ref)
+	m, _, err := InspectWithConfig(ctx, target, ref)
+	return m, err
+}
+
+// InspectWithConfig is like Inspect but also returns the raw config blob
+// bytes, so callers that need both (e.g. to check the self-contained image marker) avoid a
+// second round trip.
+func InspectWithConfig(ctx context.Context, target oras.ReadOnlyTarget, ref string) (*artifact.Manifest, []byte, error) {
+	_, m, configBytes, err := loadArtifactFromOCI(ctx, target, ref)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return m, nil
+	return m, configBytes, nil
 }
 
 // ResolveDigest resolves the OCI manifest digest for the given reference without
@@ -63,4 +71,23 @@ func ResolveDigest(ctx context.Context, target oras.ReadOnlyTarget, ref string) 
 		return "", fmt.Errorf("resolve %q: %w", ref, err)
 	}
 	return desc.Digest.String(), nil
+}
+
+// LoadImage resolves ref and fetches the OCI image manifest, the parsed
+// artifact manifest, and the raw config blob in a single pass, so callers
+// that need several of them avoid redundant round trips.
+func LoadImage(ctx context.Context, target oras.ReadOnlyTarget, ref string) (ocispec.Manifest, *artifact.Manifest, []byte, error) {
+	return loadArtifactFromOCI(ctx, target, ref)
+}
+
+// FetchLayerFromManifest returns the raw bytes of the layer whose title
+// annotation (org.opencontainers.image.title) equals title, using an
+// already-fetched OCI image manifest to avoid a re-fetch.
+func FetchLayerFromManifest(ctx context.Context, target oras.ReadOnlyTarget, ociManifest ocispec.Manifest, title string) ([]byte, error) {
+	for _, l := range ociManifest.Layers {
+		if l.Annotations != nil && l.Annotations["org.opencontainers.image.title"] == title {
+			return content.FetchAll(ctx, target, l)
+		}
+	}
+	return nil, fmt.Errorf("no layer titled %q", title)
 }

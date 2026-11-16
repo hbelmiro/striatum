@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -9,7 +10,10 @@ import (
 	"github.com/hbelmiro/striatum/pkg/oci"
 	"github.com/hbelmiro/striatum/pkg/registry"
 	gitbackend "github.com/hbelmiro/striatum/pkg/registry/git"
+	"github.com/hbelmiro/striatum/pkg/selfcontained"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
+	"oras.land/oras-go/v2"
 )
 
 func newInspectCmd() *cobra.Command {
@@ -48,12 +52,49 @@ func inspectOCI(cmd *cobra.Command, reference string) error {
 	if digest != "" {
 		inspectRef = digest
 	}
-	m, err := oci.Inspect(cmd.Context(), target, inspectRef)
+	ociManifest, m, configBytes, err := oci.LoadImage(cmd.Context(), target, inspectRef)
 	if err != nil {
 		return fmt.Errorf("inspect artifact manifest and metadata: %w", err)
 	}
 	printManifest(cmd.OutOrStdout(), m, digest, "")
+	printSelfContainedSection(cmd, target, ociManifest, configBytes)
 	return nil
+}
+
+// printSelfContainedSection appends the self-contained image provenance summary
+// when the referenced image is self-contained. The OCI manifest and config
+// blob are the ones already fetched by inspectOCI; provenance fetch or parse
+// failures produce a stderr warning instead of a silently truncated report.
+func printSelfContainedSection(cmd *cobra.Command, target oras.ReadOnlyTarget, ociManifest ocispec.Manifest, configBytes []byte) {
+	if !selfcontained.IsMarked(configBytes) {
+		return
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Self-contained: v1 (dev.striatum.self-contained)")
+	provBytes, err := oci.FetchLayerFromManifest(cmd.Context(), target, ociManifest, selfcontained.ProvenancePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not fetch provenance layer: %v\n", err)
+		return
+	}
+	var prov selfcontained.Provenance
+	if err := json.Unmarshal(provBytes, &prov); err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not parse provenance document: %v\n", err)
+		return
+	}
+	if len(prov.Dependencies) > 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Bundled dependencies:")
+		for _, d := range prov.Dependencies {
+			src := d.ResolvedSource.Ref
+			if src == "" {
+				src = d.ResolvedSource.URL
+			}
+			if d.ResolvedSource.Digest != "" {
+				src += " (" + d.ResolvedSource.Digest + ")"
+			} else if d.ResolvedSource.Commit != "" {
+				src += " (" + d.ResolvedSource.Commit + ")"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  - %s %s@%s from %s\n", d.Kind, d.Name, d.Version, src)
+		}
+	}
 }
 
 func inspectGit(cmd *cobra.Command, reference string) error {

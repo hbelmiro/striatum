@@ -35,6 +35,11 @@ func ListCachedArtifacts() ([]CachedArtifact, error) {
 		if !kd.IsDir() {
 			continue
 		}
+		// The self-contained cache is not a kind directory; its payloads are
+		// managed by install/reinstall, not listed as ordinary artifacts.
+		if kd.Name() == "self-contained" {
+			continue
+		}
 		kindPath := filepath.Join(cacheRoot, kd.Name())
 		entries, err := os.ReadDir(kindPath)
 		if err != nil {

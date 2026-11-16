@@ -18,13 +18,16 @@ const defaultLayoutDir = "build"
 
 func newPackCmd() *cobra.Command {
 	var manifestFlag, outputFlag string
+	var selfContained bool
 	cmd := &cobra.Command{
 		Use:   "pack",
 		Short: "Bundle the artifact into a local OCI Image Layout directory (default <project>/build/; override with -o / --output)",
 		Long: `Reads artifact.json and spec.files from the manifest’s project directory and writes an OCI Image Layout for push or local use.
 
-By default the layout is written to <project>/build/. Use -o / --output to set a different directory; paths are relative to the shell’s current working directory (same as striatum pull --output).`,
-		Example: "  striatum pack\n  striatum pack -f packages/my-skill\n  striatum pack -o ./dist\n  striatum pack -f packages/my-skill -o /tmp/my-layout",
+By default the layout is written to <project>/build/. Use -o / --output to set a different directory; paths are relative to the shell’s current working directory (same as striatum pull --output).
+
+Use --self-contained to bundle the root Skill with its complete Skill and Prompt dependency closure into one image: artifact-owned references are rewritten to resolve inside the image, and the result is validated against external consumer constraints. Publish it with "striatum push --self-contained <registry-ref>"; push re-runs the same preparation from the manifest (it does not consume a previously packed layout).`,
+		Example: "  striatum pack\n  striatum pack -f packages/my-skill\n  striatum pack -o ./dist\n  striatum pack -f packages/my-skill -o /tmp/my-layout\n  striatum pack --self-contained -o ./dist",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manifestPath, projectRoot, err := resolveManifestAndProjectRoot(manifestFlag)
 			if err != nil {
@@ -46,6 +49,9 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 			if err := os.MkdirAll(layoutPath, 0o755); err != nil {
 				return fmt.Errorf("create layout dir: %w", err)
 			}
+			if selfContained {
+				return runPackSelfContained(cmd, m, projectRoot, layoutPath)
+			}
 			depFiles, err := resolvePromptDeps(cmd.Context(), m, defaultPromptPuller)
 			if err != nil {
 				return err
@@ -59,7 +65,28 @@ By default the layout is written to <project>/build/. Use -o / --output to set a
 	}
 	cmd.Flags().StringVarP(&manifestFlag, "manifest", "f", "", manifestFlagUsage)
 	cmd.Flags().StringVarP(&outputFlag, "output", "o", "", "OCI layout output directory (default: <project>/build/; relative paths use the current working directory)")
+	cmd.Flags().BoolVar(&selfContained, "self-contained", false, "Bundle the Skill with its complete dependency closure into one self-contained image (publish with: striatum push --self-contained <registry-ref>)")
 	return cmd
+}
+
+// runPackSelfContained prepares the self-contained image and writes it as an OCI
+// Image Layout, tagged name:version like an ordinary pack.
+func runPackSelfContained(cmd *cobra.Command, m *artifact.Manifest, projectRoot, layoutPath string) error {
+	p, err := prepareSelfContained(cmd.Context(), m, projectRoot)
+	if err != nil {
+		return fmt.Errorf("prepare self-contained image: %w", err)
+	}
+	defer p.Cleanup()
+	pi, err := preparedImageFrom(m, p)
+	if err != nil {
+		return err
+	}
+	tag := m.Metadata.Name + ":" + m.Metadata.Version
+	if _, err := oci.PackPreparedToLayout(cmd.Context(), pi, layoutPath, tag); err != nil {
+		return fmt.Errorf("pack self-contained image: %w", err)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed self-contained image to %s (publish with: striatum push --self-contained <registry-ref>)\n", layoutPath)
+	return nil
 }
 
 type promptDepPuller func(ctx context.Context, r resolver.ResolvedArtifact) error

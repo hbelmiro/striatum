@@ -166,6 +166,18 @@ func discoverUpdates(ctx context.Context, entries []installer.InstalledEntry, st
 	var candidates []updateCandidate
 
 	for _, e := range entries {
+		if e.SelfContained {
+			// Exported installs are immutable: their source ref is pinned by
+			// digest and there is no movable tag to check.
+			_, _ = fmt.Fprintf(stdout, "Checking %s (self-contained)...\n", e.Name)
+			_, _ = fmt.Fprintf(stdout, "==> %s: installed from a self-contained image, pinned by digest, not auto-updatable.\n", e.Name)
+			candidates = append(candidates, updateCandidate{
+				entry:   e,
+				latest:  e.Version,
+				repoRef: "",
+			})
+			continue
+		}
 		repoRef := registryRepoRef(e.Registry)
 		if repoRef == "" && strings.HasPrefix(e.Registry, "git:") {
 			_, _ = fmt.Fprintf(stdout, "Checking %s (git)...\n", e.Name)

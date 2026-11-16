@@ -36,6 +36,14 @@ func CacheDir(kind, name, version string) string {
 	return filepath.Join(CacheRoot(), cacheDirName, kind, name+"@"+version)
 }
 
+// SelfContainedCacheDir returns the isolated cache directory for a self-contained
+// image of name@version. It lives under cache/self-contained/, outside the
+// per-kind directories probed by FindCacheDir, so self-contained payloads
+// and ordinary cache entries can never substitute for one another.
+func SelfContainedCacheDir(name, version string) string {
+	return filepath.Join(CacheRoot(), cacheDirName, "self-contained", name+"@"+version)
+}
+
 // FindCacheDir probes all supported kind subdirectories for name@version.
 // Returns an error if more than one kind matches (ambiguous cache).
 func FindCacheDir(name, version string) (string, bool, error) {
@@ -98,7 +106,10 @@ func isCacheFresh(ctx context.Context, cacheDir string, resolveDigest DigestFunc
 }
 
 // EnsureInCache ensures the artifact is in cacheDir with digest verification when resolveDigest is provided.
-// When resolveDigest is non-nil and the cache cannot be verified as fresh, the cache is discarded and re-pulled.
+// When resolveDigest is non-nil and the cache cannot be verified as fresh, the cache is re-pulled.
+// A stale entry is moved aside first and restored when the re-pull fails, so
+// a transient failure (e.g. an unreachable registry) does not destroy
+// previously usable cached content.
 // When resolveDigest is nil, an existing cache is trusted without verification.
 func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc, resolveDigest DigestFunc) error {
 	manifestPath := filepath.Join(cacheDir, "artifact.json")
@@ -110,6 +121,8 @@ func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc, resolveD
 	cacheExists := statErr == nil
 
 	var remoteDigest string
+	backupDir := ""
+	keepBackup := false
 	if cacheExists {
 		if resolveDigest == nil {
 			return nil
@@ -119,15 +132,35 @@ func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc, resolveD
 		if fresh {
 			return nil
 		}
-		if err := os.RemoveAll(cacheDir); err != nil {
-			return fmt.Errorf("remove stale cache %s: %w", cacheDir, err)
+		// Move the stale entry aside instead of deleting it, so a failed
+		// re-pull can restore it.
+		var err error
+		backupDir, err = moveAside(cacheDir)
+		if err != nil {
+			return fmt.Errorf("set aside stale cache %s: %w", cacheDir, err)
 		}
+		defer func() {
+			// Remove the backup unless a failed restore kept it for manual
+			// recovery (the warning names its location).
+			if !keepBackup {
+				_ = os.RemoveAll(backupDir)
+			}
+		}()
 	}
 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		if restoreErr := restoreBackup(backupDir, cacheDir); restoreErr != nil {
+			keepBackup = true
+		}
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 	if err := pull(ctx, cacheDir); err != nil {
+		if backupDir != "" {
+			_ = os.RemoveAll(cacheDir)
+			if restoreErr := restoreBackup(backupDir, cacheDir); restoreErr != nil {
+				keepBackup = true
+			}
+		}
 		return err
 	}
 
@@ -138,6 +171,37 @@ func EnsureInCache(ctx context.Context, cacheDir string, pull PullFunc, resolveD
 	}
 	if remoteDigest != "" {
 		_ = WriteDigest(cacheDir, remoteDigest)
+	}
+	return nil
+}
+
+// moveAside renames dir to a unique sibling so a new version can be written
+// while the old content stays recoverable. Returns the backup path.
+func moveAside(dir string) (string, error) {
+	backup, err := os.MkdirTemp(filepath.Dir(dir), ".stale-"+filepath.Base(dir)+"-*")
+	if err != nil {
+		return "", err
+	}
+	if err := os.Remove(backup); err != nil {
+		return "", err
+	}
+	if err := os.Rename(dir, backup); err != nil {
+		_ = os.RemoveAll(backup)
+		return "", err
+	}
+	return backup, nil
+}
+
+// restoreBackup moves a backup created by moveAside back into place. It
+// returns an error when the restore fails; the caller must then keep the
+// backup on disk (its location is named in the warning) for manual recovery.
+func restoreBackup(backupDir, dir string) error {
+	if backupDir == "" {
+		return nil
+	}
+	if err := os.Rename(backupDir, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not restore cache entry %s (kept at %s): %v\n", dir, backupDir, err)
+		return err
 	}
 	return nil
 }

@@ -22,6 +22,11 @@ type InstalledEntry struct {
 	Status        string `yaml:"status"`
 	LastError     string `yaml:"last_error,omitempty"`
 	UpdatedAt     string `yaml:"updated_at"`
+	// Exported marks entries installed from a self-contained image; their
+	// payload lives in the isolated self-contained cache
+	// (~/.striatum/cache/self-contained/) and is re-pulled by immutable
+	// digest reference.
+	SelfContained bool `yaml:"self-contained,omitempty"`
 }
 
 // installedFile is the on-disk format with explicit scope sections.

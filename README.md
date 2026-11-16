@@ -159,10 +159,21 @@ striatum pack -f packages/my-skill
 striatum pack -o ./dist
 ```
 
-| Flag               | Description                                |
-| ------------------ | ------------------------------------------ |
-| `-f`, `--manifest` | Path to manifest file or project directory |
-| `-o`, `--output`   | OCI layout output directory                |
+| Flag               | Description                                                                      |
+|--------------------|----------------------------------------------------------------------------------|
+| `-f`, `--manifest` | Path to manifest file or project directory                                       |
+| `-o`, `--output`   | OCI layout output directory                                                      |
+| `--self-contained` | Bundle the Skill with its complete dependency closure into one image (see below) |
+
+#### Self-contained images
+
+`pack --self-contained` (Skill artifacts only) prepares one self-contained, MLflow-compatible image: the root Skill plus its complete Skill and Prompt dependency closure, with artifact-owned Markdown references rewritten so they resolve inside the image. The root `SKILL.md` sits at the image root (as MLflow's Skill Registry requires), dependencies live under `deps/skills/<name>/` and `deps/prompts/<name>/`, and a provenance document at `.striatum/provenance.json` preserves the original `artifact.json` declarations and resolved source identities (including declared pins).
+
+Because external consumers read the skill from the image alone, the root `SKILL.md` must carry YAML frontmatter with a non-empty `name` field, every file it references must be declared in some artifact's `spec.files`, and Markdown links must point at artifact-owned files with relative paths (URLs, anchors, and absolute paths are left untouched).
+
+During preparation the self-contained image is validated against the audited MLflow constraints (root `SKILL.md` with valid frontmatter, portable paths without case/Unicode collisions, at most 256 layers, 25 MiB content budget), and inputs are strictly materialized: only regular files are accepted (symlinks, directories used as files, and special files such as FIFOs are rejected). Ordinary `validate`, `pack`, and `push` keep their existing defaults and do not impose these restrictions.
+
+Source files and ordinary cache entries are never modified; the transformed payload is staged separately and never contaminates the name/version caches. The same image works with both MLflow (`mlflow skills register oci --image <ref>`) and `striatum install`, which installs the bundled closure as one unit without re-resolving dependencies from their original sources.
 
 ### push
 
@@ -173,9 +184,20 @@ striatum push quay.io/my-org/my-skill:1.0.0
 striatum push -f ./my-skill quay.io/my-org/my-skill:1.0.0
 ```
 
-| Flag               | Description                                |
-| ------------------ | ------------------------------------------ |
-| `-f`, `--manifest` | Path to manifest file or project directory |
+`push --self-contained` publishes one self-contained image instead of the plain artifact. It re-runs the same preparation as `pack --self-contained` from the manifest (push never consumes a previously packed layout), so the two commands are interchangeable entry points for the same preparation.
+
+The default push output is human-facing and may change between releases. Use `--print-digest` for a stable machine-readable contract: on success exactly one canonical reference line (`registry/repository@sha256:...`) is written to stdout, diagnostics go to stderr, and a failed push writes no successful reference to stdout. The emitted digest-only reference is accepted by `striatum install`, `striatum pull`, and `striatum inspect`, and selects the exact image even after the original tag moves or is deleted.
+
+```bash
+ref=$(striatum push --self-contained --print-digest quay.io/my-org/my-skill:999-SNAPSHOT)
+striatum install --target claude "$ref"
+```
+
+| Flag               | Description                                                         |
+|--------------------|---------------------------------------------------------------------|
+| `-f`, `--manifest` | Path to manifest file or project directory                          |
+| `--self-contained` | Publish one image bundling the Skill with its complete closure      |
+| `--print-digest`   | Print one canonical `registry/repository@sha256:...` line to stdout |
 
 ### pull
 
@@ -195,7 +217,7 @@ striatum pull -o ./out oci:./build:my-skill:1.0.0
 
 ### inspect
 
-Display the artifact manifest and metadata of a remote artifact without downloading layers.
+Display the artifact manifest and metadata of a remote artifact without downloading layers. For self-contained images, a `Self-contained:` section additionally lists the bundled dependencies and the sources they were resolved from.
 
 ```bash
 striatum inspect quay.io/my-org/my-skill:1.0.0
@@ -221,6 +243,10 @@ striatum install --target claude --kind Skill git:https://github.com/org/repo.gi
 striatum install --target claude https://github.com/org/skills/tree/main/skills/my-skill
 striatum install --target claude https://github.com/org/skills/blob/main/skills/my-skill/SKILL.md
 ```
+
+Digest-only references (`registry/repository@sha256:...`, e.g. the output of `push --print-digest`, or `oci:/path@sha256:...` for a local layout) are accepted by `install`, `pull`, and `inspect`, and always select the exact image the digest points at.
+
+Installing an exported image (see [Self-contained images](#self-contained-images)) pulls the bundled dependency closure as one unit: dependencies are not re-resolved from their original sources, the payload is cached under the isolated `~/.striatum/cache/self-contained/` directory (never mixed with ordinary cache entries), and `--reinstall-all` re-pulls it by its immutable digest reference even if the original tag has moved.
 
 | Flag              | Description                                                     |
 |-------------------|-----------------------------------------------------------------|

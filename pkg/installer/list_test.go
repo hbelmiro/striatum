@@ -66,6 +66,43 @@ func TestListCachedArtifacts_OneValidEntry(t *testing.T) {
 	}
 }
 
+func TestListCachedArtifacts_SkipsSelfContainedDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STRIATUM_HOME", dir)
+
+	ordinary := CacheDir("Skill", "foo", "1.0.0")
+	if err := os.MkdirAll(ordinary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifactManifest(t, ordinary, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "foo", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+	sc := SelfContainedCacheDir("foo", "1.0.0")
+	if err := os.MkdirAll(sc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifactManifest(t, sc, &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "foo", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	})
+
+	got, err := ListCachedArtifacts()
+	if err != nil {
+		t.Fatalf("ListCachedArtifacts(): err = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1 (self-contained entry must not be listed as an ordinary artifact): %+v", len(got), got)
+	}
+	if got[0].Name != "foo" {
+		t.Errorf("got[0].Name = %q, want foo", got[0].Name)
+	}
+}
+
 func TestListCachedArtifacts_MultipleEntriesSorted(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("STRIATUM_HOME", dir)

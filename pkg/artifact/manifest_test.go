@@ -1024,6 +1024,19 @@ func TestValidateLocal_FileMissing(t *testing.T) {
 	}
 }
 
+// Backslash file names are legal on Unix but cannot round-trip through OCI
+// layer extraction portably; validation must reject them before publishing.
+func TestValidateLocal_BackslashFilePathRejected(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, `a\b.txt`), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manifest{Spec: Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", `a\b.txt`}}}
+	if err := ValidateLocal(m, dir); err == nil {
+		t.Error("ValidateLocal() err = nil, want error for backslash file path")
+	}
+}
+
 func TestValidateLocal_NilManifest(t *testing.T) {
 	if err := ValidateLocal(nil, t.TempDir()); err == nil {
 		t.Error("ValidateLocal(nil, dir) err = nil, want error")
@@ -1334,8 +1347,8 @@ func TestGitDependency_CanonicalRef_IgnoresNewFields(t *testing.T) {
 
 func TestGitDependency_CanonicalRef_IncludesKind(t *testing.T) {
 	base := &GitDependency{
-		URL:    "https://example.com/r.git",
-		Ref:    "v1.0.0",
+		URL: "https://example.com/r.git",
+		Ref: "v1.0.0",
 	}
 	withKind := &GitDependency{
 		URL:  "https://example.com/r.git",

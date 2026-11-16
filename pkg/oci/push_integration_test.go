@@ -5,6 +5,7 @@ package oci
 import (
 	"context"
 	"net"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"testing"
@@ -30,8 +31,17 @@ func startTestRegistry(t *testing.T) string {
 	portStr := strconv.Itoa(port)
 	containerName := "striatum-test-registry-" + portStr
 
-	out, err := exec.Command("docker", "run", "-d", "--rm", "--name", containerName,
-		"-p", "127.0.0.1:"+portStr+":5000", "registry:2").CombinedOutput()
+	// Docker container startup occasionally fails transiently when multiple
+	// test binaries start registries in parallel; retry once before failing.
+	var out []byte
+	for attempt := 0; attempt < 2; attempt++ {
+		out, err = exec.Command("docker", "run", "-d", "--rm", "--name", containerName,
+			"-p", "127.0.0.1:"+portStr+":5000", "registry:2").CombinedOutput()
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("start registry container: %v: %s", err, out)
 	}
@@ -40,12 +50,18 @@ func startTestRegistry(t *testing.T) string {
 	})
 
 	addr := "127.0.0.1:" + portStr
+	// Probe the HTTP endpoint, not just the TCP port: docker's port forward
+	// accepts connections before the registry process inside serves HTTP,
+	// and pushing against that window fails with EOF.
+	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, dialErr := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-		if dialErr == nil {
-			conn.Close()
-			return "localhost:" + portStr + "/striatum-test"
+		resp, getErr := client.Get("http://" + addr + "/v2/")
+		if getErr == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized {
+				return "localhost:" + portStr + "/striatum-test"
+			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
