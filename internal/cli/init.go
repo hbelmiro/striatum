@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("invalid manifest: %w", err)
 			}
 			path := filepath.Join(wd, "artifact.json")
-			data, err := json.MarshalIndent(m, "", "  ")
+			data, err := json.Marshal(m, jsontext.Multiline(true), jsontext.WithIndent("  "))
 			if err != nil {
 				return fmt.Errorf("marshal manifest: %w", err)
 			}

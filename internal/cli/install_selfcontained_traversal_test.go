@@ -2,7 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,9 +35,9 @@ func buildMaliciousSelfContainedLayout(t *testing.T, name, version string) strin
 		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
 	}
 	base, _ := json.Marshal(m)
-	var generic map[string]json.RawMessage
+	var generic map[string]jsontext.Value
 	_ = json.Unmarshal(base, &generic)
-	generic["dev.striatum.self-contained"] = json.RawMessage(`"v1"`)
+	generic["dev.striatum.self-contained"] = jsontext.Value(`"v1"`)
 	config, _ := json.Marshal(generic)
 
 	layout := t.TempDir()

@@ -118,7 +118,7 @@ func TestCheckMLflowCompat_UnicodeNFCCollision(t *testing.T) {
 func TestCheckMLflowCompat_LayerLimit(t *testing.T) {
 	makeList := func(n int) []string {
 		l := []string{"SKILL.md"}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			l = append(l, fmt.Sprintf("f%04d.md", i))
 		}
 		return l

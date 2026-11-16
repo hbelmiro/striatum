@@ -1,7 +1,8 @@
 package artifact
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -278,11 +279,11 @@ type Spec struct {
 
 func (m *Manifest) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		APIVersion   string            `json:"apiVersion"`
-		Kind         string            `json:"kind"`
-		Metadata     Metadata          `json:"metadata"`
-		Spec         Spec              `json:"spec"`
-		Dependencies []json.RawMessage `json:"dependencies"`
+		APIVersion   string           `json:"apiVersion"`
+		Kind         string           `json:"kind"`
+		Metadata     Metadata         `json:"metadata"`
+		Spec         Spec             `json:"spec"`
+		Dependencies []jsontext.Value `json:"dependencies"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -303,7 +304,7 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func unmarshalDependency(data json.RawMessage, index int) (Dependency, error) {
+func unmarshalDependency(data jsontext.Value, index int) (Dependency, error) {
 	var probe struct {
 		Source string `json:"source"`
 	}
@@ -331,7 +332,7 @@ func unmarshalDependency(data json.RawMessage, index int) (Dependency, error) {
 }
 
 func (m *Manifest) MarshalJSON() ([]byte, error) {
-	var rawDeps []json.RawMessage
+	var rawDeps []jsontext.Value
 	for _, d := range m.Dependencies {
 		b, err := json.Marshal(d)
 		if err != nil {
@@ -340,11 +341,11 @@ func (m *Manifest) MarshalJSON() ([]byte, error) {
 		rawDeps = append(rawDeps, b)
 	}
 	return json.Marshal(struct {
-		APIVersion   string            `json:"apiVersion"`
-		Kind         string            `json:"kind"`
-		Metadata     Metadata          `json:"metadata"`
-		Spec         Spec              `json:"spec"`
-		Dependencies []json.RawMessage `json:"dependencies,omitempty"`
+		APIVersion   string           `json:"apiVersion"`
+		Kind         string           `json:"kind"`
+		Metadata     Metadata         `json:"metadata"`
+		Spec         Spec             `json:"spec"`
+		Dependencies []jsontext.Value `json:"dependencies,omitempty"`
 	}{
 		APIVersion:   m.APIVersion,
 		Kind:         m.Kind,

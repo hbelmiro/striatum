@@ -200,13 +200,13 @@ func parseRemoteOCIReference(ref string) (*artifact.OCIDependency, error) {
 		return nil, fmt.Errorf("invalid reference %q: empty host/repository or tag", originalRef)
 	}
 
-	firstSlash := strings.Index(repoWithHost, "/")
-	if firstSlash < 0 {
+	before, after, ok := strings.Cut(repoWithHost, "/")
+	if !ok {
 		return nil, fmt.Errorf("invalid reference %q: missing repository path (expected host/repo:tag)", originalRef)
 	}
 
-	host := repoWithHost[:firstSlash]
-	repository := repoWithHost[firstSlash+1:]
+	host := before
+	repository := after
 	if host == "" || repository == "" {
 		return nil, fmt.Errorf("invalid reference %q: empty host or repository", originalRef)
 	}

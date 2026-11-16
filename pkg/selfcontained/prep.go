@@ -2,7 +2,8 @@ package selfcontained
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path"
@@ -40,23 +41,23 @@ type ResolvedSource struct {
 // DepProvenance records one bundled dependency: its declaration verbatim,
 // the resolved source, and the files it occupies in the self-contained image.
 type DepProvenance struct {
-	Kind           string          `json:"kind"`
-	Name           string          `json:"name"`
-	Version        string          `json:"version"`
-	Declared       json.RawMessage `json:"declared"`
+	Kind     string         `json:"kind"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Declared jsontext.Value `json:"declared"`
 	// Manifest is the dependency's own original manifest, including its own
 	// dependency declarations, so transitive history stays inspectable.
-	Manifest       json.RawMessage `json:"manifest"`
-	ResolvedSource ResolvedSource  `json:"resolvedSource"`
-	ImagePaths     []string        `json:"imagePaths"`
+	Manifest       jsontext.Value `json:"manifest"`
+	ResolvedSource ResolvedSource `json:"resolvedSource"`
+	ImagePaths     []string       `json:"imagePaths"`
 }
 
 // RootProvenance records the root artifact and its original manifest.
 type RootProvenance struct {
-	Kind     string          `json:"kind"`
-	Name     string          `json:"name"`
-	Version  string          `json:"version"`
-	Manifest json.RawMessage `json:"manifest"`
+	Kind     string         `json:"kind"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Manifest jsontext.Value `json:"manifest"`
 }
 
 // Provenance is the self-contained image provenance document (striatum.dev/self-contained/v1),
@@ -277,7 +278,7 @@ func Prepare(ctx context.Context, opts Options) (*Prepared, error) {
 	// Provenance document.
 	prov.Files = append(allFiles, ProvenancePath)
 	sort.Strings(prov.Files)
-	provJSON, err := json.MarshalIndent(prov, "", "  ")
+	provJSON, err := json.Marshal(prov, jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return fail(fmt.Errorf("marshal provenance: %w", err))
 	}
@@ -387,12 +388,12 @@ func ConfigWithMarker(m *artifact.Manifest) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal manifest: %w", err)
 	}
-	var generic map[string]json.RawMessage
+	var generic map[string]jsontext.Value
 	if err := json.Unmarshal(base, &generic); err != nil {
 		return nil, fmt.Errorf("unmarshal manifest: %w", err)
 	}
-	generic[MarkerKey] = json.RawMessage(`"` + MarkerValue + `"`)
-	out, err := json.Marshal(generic)
+	generic[MarkerKey] = jsontext.Value(`"` + MarkerValue + `"`)
+	out, err := json.Marshal(generic, json.Deterministic(true))
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
@@ -402,7 +403,7 @@ func ConfigWithMarker(m *artifact.Manifest) ([]byte, error) {
 // IsMarked reports whether a config blob (artifact manifest JSON)
 // carries the Striatum export marker.
 func IsMarked(configBytes []byte) bool {
-	var generic map[string]json.RawMessage
+	var generic map[string]jsontext.Value
 	if err := json.Unmarshal(configBytes, &generic); err != nil {
 		return false
 	}

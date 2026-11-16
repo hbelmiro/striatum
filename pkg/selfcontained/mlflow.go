@@ -187,7 +187,7 @@ func checkPortablePath(f string) error {
 			return fmt.Errorf("path %q: control characters are not portable", f)
 		}
 	}
-	for _, seg := range strings.Split(f, "/") {
+	for seg := range strings.SplitSeq(f, "/") {
 		if strings.ContainsAny(seg, `:*?"<>|`) {
 			return fmt.Errorf("path %q: segment %q contains a character that is not portable", f, seg)
 		}
@@ -195,8 +195,8 @@ func checkPortablePath(f string) error {
 			return fmt.Errorf("path %q: segment %q ends in dots or spaces, which is not portable", f, seg)
 		}
 		stem := seg
-		if i := strings.IndexByte(seg, '.'); i >= 0 {
-			stem = seg[:i]
+		if before, _, ok := strings.Cut(seg, "."); ok {
+			stem = before
 		}
 		if windowsReservedNames[strings.ToUpper(stem)] {
 			return fmt.Errorf("path %q: segment %q uses a reserved device name", f, seg)
