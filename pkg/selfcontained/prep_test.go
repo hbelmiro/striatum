@@ -2,7 +2,8 @@ package selfcontained
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -478,17 +479,17 @@ func TestIsMarked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var v2 map[string]json.RawMessage
+	var v2 map[string]jsontext.Value
 	if err := json.Unmarshal(marked, &v2); err != nil {
 		t.Fatal(err)
 	}
-	v2[MarkerKey] = json.RawMessage(`"v2"`)
+	v2[MarkerKey] = jsontext.Value(`"v2"`)
 	v2Bytes, _ := json.Marshal(v2)
-	var nonString map[string]json.RawMessage
+	var nonString map[string]jsontext.Value
 	if err := json.Unmarshal(marked, &nonString); err != nil {
 		t.Fatal(err)
 	}
-	nonString[MarkerKey] = json.RawMessage(`42`)
+	nonString[MarkerKey] = jsontext.Value(`42`)
 	nonStringBytes, _ := json.Marshal(nonString)
 
 	tests := []struct {

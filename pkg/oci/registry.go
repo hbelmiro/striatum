@@ -116,7 +116,7 @@ func NewRepository(repo string) (*remote.Repository, error) {
 	if err != nil {
 		return nil, err
 	}
-	host := strings.Split(reg.Reference.Host(), ":")[0]
+	host, _, _ := strings.Cut(reg.Reference.Host(), ":")
 	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		reg.PlainHTTP = true
 	}

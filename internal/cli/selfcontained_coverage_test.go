@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,11 +245,11 @@ func mustMarkedConfig(t *testing.T, name string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var generic map[string]json.RawMessage
+	var generic map[string]jsontext.Value
 	if err := json.Unmarshal(base, &generic); err != nil {
 		t.Fatal(err)
 	}
-	generic["dev.striatum.self-contained"] = json.RawMessage(`"v1"`)
+	generic["dev.striatum.self-contained"] = jsontext.Value(`"v1"`)
 	out, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
@@ -289,11 +290,11 @@ func TestInstall_SelfContainedNonSkillRootRejected(t *testing.T) {
 func mustPromptMarkedConfig(t *testing.T) []byte {
 	t.Helper()
 	base := []byte(`{"apiVersion":"striatum.dev/v1alpha2","kind":"Prompt","metadata":{"name":"notskill","version":"1.0.0"},"spec":{"entrypoint":"PROMPT.md","files":["PROMPT.md"]}}`)
-	var generic map[string]json.RawMessage
+	var generic map[string]jsontext.Value
 	if err := json.Unmarshal(base, &generic); err != nil {
 		t.Fatal(err)
 	}
-	generic["dev.striatum.self-contained"] = json.RawMessage(`"v1"`)
+	generic["dev.striatum.self-contained"] = jsontext.Value(`"v1"`)
 	out, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
