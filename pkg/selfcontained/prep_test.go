@@ -141,6 +141,61 @@ func TestPrepare_StandaloneSkill(t *testing.T) {
 	}
 }
 
+// Pack parity: a skill whose Markdown links a dependency's directory
+// (../dep-skill/) and an undeclared dependency file packs in self-contained
+// mode exactly as it does in regular mode: the directory link is rewritten to
+// the dependency's image directory and the undeclared reference passes
+// through verbatim.
+func TestPrepare_DirectoryAndUndeclaredLinks(t *testing.T) {
+	skillDep := depManifest("Skill", "dep-skill", []string{"SKILL.md", "README.md"})
+	root := rootSkillManifest("root-skill", ociDep("skills/dep-skill", "1.0.0", ""))
+	root.Spec.Files = []string{"SKILL.md", "README.md"}
+
+	fetcher := &stubFetcher{manifests: map[string]*artifact.Manifest{
+		"reg.io/skills/dep-skill:1.0.0": skillDep,
+	}}
+	mat, _ := materializerFor(t, map[string]depFixture{
+		"dep-skill@1.0.0": {manifest: skillDep, files: map[string]string{
+			"SKILL.md":  "---\nname: dep-skill\n---\nBack to [root](../root-skill/).\n",
+			"README.md": "dep readme\n",
+		}},
+	})
+
+	project := writeProject(t, map[string]string{
+		"SKILL.md":  "---\nname: root-skill\n---\nSee [dep](../dep-skill/SKILL.md).\n",
+		"README.md": "Review via [dep](../dep-skill/) and [missing](../dep-skill/MISSING.md).\n",
+	})
+	p, err := Prepare(context.Background(), Options{
+		Manifest: root, ProjectRoot: project, Fetcher: fetcher, MaterializeDep: mat,
+		StagingParent: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	defer p.Cleanup()
+
+	readme, _ := os.ReadFile(filepath.Join(p.Dir, "README.md"))
+	got := string(readme)
+	if !strings.Contains(got, "](deps/skills/dep-skill/)") {
+		t.Errorf("directory link not rewritten to image dir: %q", got)
+	}
+	if !strings.Contains(got, "](../dep-skill/MISSING.md)") {
+		t.Errorf("undeclared link not left verbatim: %q", got)
+	}
+	for _, f := range []string{"deps/skills/dep-skill/SKILL.md", "deps/skills/dep-skill/README.md"} {
+		if _, err := os.Stat(filepath.Join(p.Dir, filepath.FromSlash(f))); err != nil {
+			t.Errorf("staged file %q missing: %v", f, err)
+		}
+	}
+
+	// Dep-owned directory link rewritten in the staged dep file: from
+	// deps/skills/dep-skill/, the root artifact's directory is the image root.
+	depMD, _ := os.ReadFile(filepath.Join(p.Dir, "deps", "skills", "dep-skill", "SKILL.md"))
+	if !strings.Contains(string(depMD), "](../../../)") {
+		t.Errorf("dep SKILL.md directory link not rewritten: %q", depMD)
+	}
+}
+
 func TestPrepare_MultiLevelClosure(t *testing.T) {
 	promptDep := depManifest("Prompt", "review-policy", []string{"PROMPT.md", "examples/case.md"})
 	skillDep := depManifest("Skill", "generic-review", []string{"SKILL.md"}, ociDep("prompts/review-policy", "1.0.0", ""))
