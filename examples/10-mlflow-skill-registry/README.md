@@ -80,4 +80,4 @@ Whether the Skill arrives via `mlflow skills pull` or `striatum install`, the co
 
 ## Running the test
 
-The integration test for this example pushes both artifacts, registers the Skill with MLflow, and pulls it back. It requires the `mlflow` CLI (version 3.18 or newer) on PATH; when the CLI is absent, the test skips rather than fails. To get the pinned version CI uses, run `uv sync --frozen --project ../docker` and put `examples/docker/.venv/bin` on PATH.
+The integration test for this example pushes both artifacts, registers the Skill with MLflow, and pulls it back. It requires the `mlflow` CLI (version 3.18 or newer) on PATH; when the CLI is absent, the test fails. To get the pinned version CI uses, run `uv sync --frozen --project ../docker` and put `examples/docker/.venv/bin` on PATH.

@@ -379,7 +379,7 @@ func setManifestVersion(t *testing.T, manifestPath, version string) {
 func setupGitFixture(t *testing.T, name, version string) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not in PATH")
+		t.Fatalf("git not in PATH: %v", err)
 	}
 
 	dir := t.TempDir()
@@ -929,7 +929,7 @@ func TestExample_MLflowSkillRegistry(t *testing.T) {
 	home := setupTestEnv(t)
 
 	if _, err := exec.LookPath("mlflow"); err != nil {
-		t.Skip("mlflow not in PATH, skipping MLflow skill registry example")
+		t.Fatalf("mlflow not in PATH: %v", err)
 	}
 
 	base := copyExample(t, "10-mlflow-skill-registry")
@@ -970,12 +970,6 @@ func TestExample_MLflowSkillRegistry(t *testing.T) {
 
 	registerOut, err := runMLflow("skills", "register", "oci", "--image", ref, "--name", "mlf-skill")
 	if err != nil {
-		// Skip only on the specific environment failure of no reachable
-		// tracking store; anything else is a real regression and must fail.
-		lower := strings.ToLower(registerOut)
-		if strings.Contains(lower, "could not find a tracking store") || strings.Contains(lower, "failed to connect to the tracking store") {
-			t.Skipf("mlflow skills register failed with a tracking-store environment issue: %v\n%s", err, registerOut)
-		}
 		t.Fatalf("mlflow skills register: %v\n%s", err, registerOut)
 	}
 
