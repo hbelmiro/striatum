@@ -57,7 +57,7 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, dep artifact.Depe
 	if !ok {
 		return f.next.FetchManifest(ctx, dep)
 	}
-	m, err := loadCachedManifest(name, version)
+	m, err := fetchCachedManifest(dep, name, version)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +69,31 @@ func (f *cacheFirstFetcher) FetchManifest(ctx context.Context, dep artifact.Depe
 		return nil, fmt.Errorf("%s cache miss; remote fetch failed: %w", dep.CanonicalRef(), err)
 	}
 	return m, nil
+}
+
+// fetchCachedManifest returns the cached manifest for name@version when the
+// cache entry is valid for dep, or (nil, nil) when the cache cannot serve it.
+// A digest-pinned OCI dependency is only served from cache when the entry's
+// recorded digest matches the pin, so a tag that moved (or a different pin
+// for the same tag) cannot feed stale manifests to closure traversal.
+func fetchCachedManifest(dep artifact.Dependency, name, version string) (*artifact.Manifest, error) {
+	if ociDep, isOCI := dep.(*artifact.OCIDependency); isOCI && ociDep.Digest != "" {
+		cacheDir, found, err := installer.FindCacheDir(name, version)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, nil
+		}
+		recorded, err := installer.ReadDigest(cacheDir)
+		if err != nil {
+			return nil, err
+		}
+		if recorded != ociDep.Digest {
+			return nil, nil
+		}
+	}
+	return loadCachedManifest(name, version)
 }
 
 // depToCacheCandidate derives a cache key (name, version) from a dependency.

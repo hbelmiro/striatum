@@ -1,0 +1,12 @@
+{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {
+    "name": "pinned-helper",
+    "version": "1.0.0"
+  },
+  "spec": {
+    "entrypoint": "SKILL.md",
+    "files": ["SKILL.md"]
+  }
+}

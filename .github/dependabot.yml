@@ -31,3 +31,24 @@ updates:
     labels:
       - dependencies
       - pre-commit
+
+  # Keeps examples/docker/uv.lock (mlflow and other Python tools used by the
+  # example tests) up to date.
+  - package-ecosystem: uv
+    directory: /examples/docker
+    schedule:
+      interval: daily
+    labels:
+      - dependencies
+      - python
+
+  # Keeps the examples test-runner image's base images (uv, golang) current.
+  # The uv image must be referenced via a FROM stage for this to work:
+  # Dependabot's docker updater only parses FROM lines, never COPY --from.
+  - package-ecosystem: docker
+    directory: /examples/docker
+    schedule:
+      interval: daily
+    labels:
+      - dependencies
+      - docker

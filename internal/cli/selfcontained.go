@@ -20,12 +20,14 @@ import (
 // against the self-contained image consumer constraints. The caller must
 // call Prepared.Cleanup when done.
 func prepareSelfContained(ctx context.Context, m *artifact.Manifest, projectRoot string) (*selfcontained.Prepared, error) {
+	// Pinned OCI dependencies are honored throughout: the cache-first fetcher
+	// only serves cache entries whose recorded digest matches the pin, and
+	// the remote backend inspects by the declared digest, so closure
+	// traversal (file lists, transitive dependencies) matches the pinned
+	// image even if the mutable tag has moved.
 	var fetcher resolver.DependencyFetcher
 	if len(m.Dependencies) > 0 {
-		// Pinned OCI dependencies are inspected by their declared digest so
-		// the closure traversal (file lists, transitive dependencies) matches
-		// the pinned image even if the mutable tag has moved.
-		fetcher = &pinAwareFetcher{next: NewCacheFirstFetcher(NewRemoteFetcher())}
+		fetcher = NewCacheFirstFetcher(NewRemoteFetcher())
 	}
 	cacheRoot := filepath.Join(installer.CacheRoot(), "cache")
 	mat := func(ctx context.Context, r resolver.ResolvedArtifact) (selfcontained.DepMaterialization, error) {
@@ -134,28 +136,6 @@ func prepareSelfContained(ctx context.Context, m *artifact.Manifest, projectRoot
 		MaterializeDep: mat,
 		StagingParent:  cacheRoot,
 	})
-}
-
-// pinAwareFetcher inspects pinned OCI dependencies by their declared digest
-// instead of the mutable tag, so closure traversal always follows the
-// pinned manifests; everything else delegates to the wrapped fetcher.
-type pinAwareFetcher struct {
-	next resolver.DependencyFetcher
-}
-
-func (f *pinAwareFetcher) FetchManifest(ctx context.Context, dep artifact.Dependency) (*artifact.Manifest, error) {
-	if ociDep, ok := dep.(*artifact.OCIDependency); ok && ociDep.Digest != "" {
-		reg, err := oci.NewRepository(ociDep.RegistryHost + "/" + ociDep.Repository)
-		if err == nil {
-			if m, inspectErr := oci.Inspect(ctx, reg, ociDep.Digest); inspectErr == nil {
-				return m, nil
-			}
-		}
-		// Best-effort fallback to the wrapped (cache-first) fetcher so
-		// offline preparation with a warm cache still traverses the closure;
-		// the materializer verifies the payload against the pin regardless.
-	}
-	return f.next.FetchManifest(ctx, dep)
 }
 
 // preparedImageFrom builds the oci.PreparedImage for a self-contained image: the manifest

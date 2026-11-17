@@ -1,0 +1,13 @@
+{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Prompt",
+  "metadata": {
+    "name": "severity-rubric",
+    "version": "1.0.0",
+    "description": "A reusable bug severity rubric for triage prompts"
+  },
+  "spec": {
+    "entrypoint": "severity-rubric.md",
+    "files": ["severity-rubric.md"]
+  }
+}

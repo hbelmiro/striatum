@@ -1,0 +1,26 @@
+{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Skill",
+  "metadata": {
+    "name": "bundle-skill",
+    "version": "1.0.0"
+  },
+  "spec": {
+    "entrypoint": "SKILL.md",
+    "files": ["SKILL.md"]
+  },
+  "dependencies": [
+    {
+      "source": "oci",
+      "registry": "localhost:5000",
+      "repository": "examples/helper-a",
+      "tag": "1.0.0"
+    },
+    {
+      "source": "oci",
+      "registry": "localhost:5000",
+      "repository": "examples/helper-b",
+      "tag": "1.0.0"
+    }
+  ]
+}

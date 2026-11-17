@@ -537,15 +537,7 @@ func runLocalInstall(cmd *cobra.Command, reference, target, projectPath string, 
 			}
 			var digestFn installer.DigestFunc
 			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
-				capturedDep := ociDep
-				digestFn = func(ctx context.Context) (string, error) {
-					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
-					reg, err := oci.NewRepository(repoPath)
-					if err != nil {
-						return "", err
-					}
-					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
-				}
+				digestFn = ociDependencyDigestFn(ociDep)
 			}
 			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
 				capturedDep := gitDep
@@ -1038,15 +1030,7 @@ func ensureArtifactsInCache(ctx context.Context, reference, kind string, rootTar
 		} else {
 			// Dependency: check if it's an OCI dependency
 			if ociDep, ok := res.Dependency.(*artifact.OCIDependency); ok {
-				capturedDep := ociDep
-				digestFn = func(ctx context.Context) (string, error) {
-					repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
-					reg, err := oci.NewRepository(repoPath)
-					if err != nil {
-						return "", err
-					}
-					return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
-				}
+				digestFn = ociDependencyDigestFn(ociDep)
 			}
 			if gitDep, ok := res.Dependency.(*artifact.GitDependency); ok {
 				capturedDep := gitDep
@@ -1110,6 +1094,24 @@ func ensureArtifactsInCache(ctx context.Context, reference, kind string, rootTar
 }
 
 // pullDependency dispatches a pull to the correct backend via the Router.
+// ociDependencyDigestFn returns the cache-identity function for an OCI
+// dependency. A pinned dependency is immutable: its cache identity is the
+// declared digest, not whatever the tag points at now.
+func ociDependencyDigestFn(dep *artifact.OCIDependency) installer.DigestFunc {
+	capturedDep := dep
+	return func(ctx context.Context) (string, error) {
+		if capturedDep.Digest != "" {
+			return capturedDep.Digest, nil
+		}
+		repoPath := capturedDep.RegistryHost + "/" + capturedDep.Repository
+		reg, err := oci.NewRepository(repoPath)
+		if err != nil {
+			return "", err
+		}
+		return oci.ResolveDigest(ctx, reg, capturedDep.Tag)
+	}
+}
+
 func pullDependency(ctx context.Context, dep artifact.Dependency, outputDir string) error {
 	if dep == nil {
 		return fmt.Errorf("nil dependency")
