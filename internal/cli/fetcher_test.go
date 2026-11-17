@@ -177,6 +177,114 @@ func TestCacheFirstFetcher_GitDep_SkipsCache(t *testing.T) {
 	}
 }
 
+// setupCacheDigest records an OCI digest for an already-cached artifact.
+func setupCacheDigest(t *testing.T, name, version, digest string) {
+	t.Helper()
+	if err := installer.WriteDigest(installer.CacheDir("Skill", name, version), digest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCacheFirstFetcher_PinnedDigestMismatch_BypassesCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+
+	// A previous unpinned install cached name@tag with different content
+	// than the pin now declares: the cache entry must not be served.
+	setupCachedManifest(t, "pinned-skill", "1.0.0")
+	setupCacheDigest(t, "pinned-skill", "1.0.0", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	remoteMf := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "pinned-skill", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md", "EXTRA.md"}},
+	}
+	next := &stubFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/pinned-skill:1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": remoteMf,
+	}}
+	fetcher := NewCacheFirstFetcher(next)
+	dep := &artifact.OCIDependency{
+		RegistryHost: "reg",
+		Repository:   "pinned-skill",
+		Tag:          "1.0.0",
+		Digest:       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+
+	m, err := fetcher.FetchManifest(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if m != remoteMf {
+		t.Errorf("stale cache entry served despite digest pin mismatch: %+v", m)
+	}
+	if len(next.calls) != 1 {
+		t.Errorf("next should be called once on pin mismatch, got %d calls", len(next.calls))
+	}
+}
+
+func TestCacheFirstFetcher_PinnedDigestMatch_CacheHit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+
+	setupCachedManifest(t, "pinned-hit", "1.0.0")
+	setupCacheDigest(t, "pinned-hit", "1.0.0", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+	next := &stubFetcher{}
+	fetcher := NewCacheFirstFetcher(next)
+	dep := &artifact.OCIDependency{
+		RegistryHost: "reg",
+		Repository:   "pinned-hit",
+		Tag:          "1.0.0",
+		Digest:       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+
+	m, err := fetcher.FetchManifest(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if m == nil || m.Metadata.Name != "pinned-hit" {
+		t.Errorf("manifest = %+v", m)
+	}
+	if len(next.calls) != 0 {
+		t.Errorf("next should not be called when the cache matches the pin, got %d calls", len(next.calls))
+	}
+}
+
+func TestCacheFirstFetcher_PinnedMissingDigestFile_BypassesCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STRIATUM_HOME", home)
+
+	// A cache entry with no recorded digest cannot be verified against the
+	// pin, so it must not be served either.
+	setupCachedManifest(t, "pinned-noverify", "1.0.0")
+
+	remoteMf := &artifact.Manifest{
+		APIVersion: "striatum.dev/v1alpha2",
+		Kind:       "Skill",
+		Metadata:   artifact.Metadata{Name: "pinned-noverify", Version: "1.0.0"},
+		Spec:       artifact.Spec{Entrypoint: "SKILL.md", Files: []string{"SKILL.md"}},
+	}
+	next := &stubFetcher{manifests: map[string]*artifact.Manifest{
+		"reg/pinned-noverify:1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": remoteMf,
+	}}
+	fetcher := NewCacheFirstFetcher(next)
+	dep := &artifact.OCIDependency{
+		RegistryHost: "reg",
+		Repository:   "pinned-noverify",
+		Tag:          "1.0.0",
+		Digest:       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+
+	m, err := fetcher.FetchManifest(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if m != remoteMf {
+		t.Errorf("unverifiable cache entry served to a pinned dependency: %+v", m)
+	}
+}
+
 // --- remoteFetcher ---
 
 func TestRemoteFetcher_NilDep(t *testing.T) {
