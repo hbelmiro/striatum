@@ -1,0 +1,2 @@
+# uv environment for the examples tests (mlflow and friends)
+examples/docker/.venv/

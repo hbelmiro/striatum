@@ -1,0 +1,13 @@
+{
+  "apiVersion": "striatum.dev/v1alpha2",
+  "kind": "Workflow",
+  "metadata": {
+    "name": "pr-review",
+    "version": "1.0.0",
+    "description": "A code review workflow that summarizes and reviews a pull request"
+  },
+  "spec": {
+    "entrypoint": "review.js",
+    "files": ["review.js"]
+  }
+}

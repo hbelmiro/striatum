@@ -36,3 +36,6 @@ Thumbs.db
 # Go workspace
 go.work
 go.work.sum
+
+# striatum examples uv environment
+examples/docker/.venv/
