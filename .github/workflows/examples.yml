@@ -53,7 +53,7 @@ jobs:
           mkdir -p "$HOME" "$STRIATUM_HOME"
           # Generous timeout: the mlflow test budgets 5 minutes per CLI
           # invocation, which the 10-minute go test default could cut short.
-          go test -timeout 30m -tags=integration ./examples/...
+          go test -v -timeout 30m -tags=integration ./examples/...
 
   # Kept separate from the examples job on purpose:
   # internal/cli/integration_test.go hardcodes registry port 5000, which the
@@ -91,4 +91,4 @@ jobs:
           HOME: ${{ runner.temp }}/integration-home
         run: |
           mkdir -p "$HOME" "$STRIATUM_HOME"
-          go test -timeout 30m -tags=integration ./...
+          go test -v -timeout 30m -tags=integration ./...
