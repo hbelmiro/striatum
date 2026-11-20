@@ -27,7 +27,7 @@ require (
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pjbgf/sha1cd v0.7.0 // indirect
-	github.com/sergi/go-diff v1.4.0 // indirect
+	github.com/sergi/go-diff v1.4.5 // indirect
 	github.com/skeema/knownhosts v1.3.3 // indirect
 	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
