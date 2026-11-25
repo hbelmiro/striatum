@@ -1,7 +1,7 @@
 # Test-runner image for the striatum examples.
 
 # uv 0.13.8 (digest-pinned; Dependabot's docker ecosystem keeps it current)
-FROM ghcr.io/astral-sh/uv@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+FROM ghcr.io/astral-sh/uv@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # golang 1.27, matching the version declared in go.mod
 FROM golang@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf
