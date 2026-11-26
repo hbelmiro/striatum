@@ -203,7 +203,7 @@ striatum install --target claude "$ref"
 
 Download an artifact and its transitive dependencies to the output directory (default: current working directory). Each artifact is placed in `<output>/<name>/`. Git dependencies declared in `artifact.json` are resolved automatically.
 
-By default, pulled artifacts are also stored in the Striatum cache (`~/.striatum/cache`). Use `--no-cache` to write only to the output directory.
+By default, pulled artifacts are also stored in the Striatum cache (`~/.striatum/cache`). Use `--no-cache` to write only to the output directory. Use [`striatum clear-cache`](#clear-cache) to remove the cache.
 
 ```bash
 striatum pull quay.io/my-org/my-skill:1.0.0
@@ -305,6 +305,14 @@ striatum update --yes
 | `-t`, `--target` | Filter by target (`cursor` or `claude`)    |
 | `--project`      | Filter by project path                     |
 | `-y`, `--yes`    | Skip confirmation prompt                   |
+
+### clear-cache
+
+Remove the entire local artifact cache (`~/.striatum/cache`), including self-contained image payloads. Installed artifacts are not affected. Running it on an empty or missing cache succeeds and reports zero removed entries.
+
+```bash
+striatum clear-cache
+```
 
 ## Supported registries
 
