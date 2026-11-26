@@ -160,6 +160,12 @@ You can list cached and installed artifacts with:
 ./striatum list --installed --target cursor
 ```
 
+To empty the local cache (`~/.striatum/cache`):
+
+```bash
+./striatum clear-cache
+```
+
 ## Step 6 — Git dependencies
 
 Not every dependency lives in an OCI registry. Striatum can also resolve dependencies hosted in Git repositories.
